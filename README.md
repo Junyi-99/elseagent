@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/avatar.png" alt="elseagent" width="160"></p>
+
 # elseagent
 
 A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/codex-sdk`](https://www.npmjs.com/package/@openai/codex-sdk) and [`@slack/bolt`](https://slack.dev/bolt-js).
@@ -36,9 +38,11 @@ Slack, not in `config.yaml`.
    [`slack-app-manifest.yaml`](slack-app-manifest.yaml) and change both names to the agent's name.
 2. **Install to Workspace**, then copy the **Bot User OAuth Token** (`xoxb-`) into `slack.botToken`.
 3. **Basic Information > App-Level Tokens**: create a token with `connections:write`, copy it
-   (`xapp-`) into `slack.appToken`.
+   (`xapp-`) into `slack.appToken`. Leave token rotation off: elseagent does not refresh it.
 4. Optionally list public channels under `slack.channels`; the agent joins them at startup.
    Private channels need an `/invite @agent`.
+5. Optionally set the app icon under **Basic Information > Display Information**, e.g.
+   [`assets/avatar.png`](assets/avatar.png) (1024 px; source: [`assets/avatar.svg`](assets/avatar.svg)).
 
 The agent replies to `@mentions` in channels (in a thread) and to DMs.
 

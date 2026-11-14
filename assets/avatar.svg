@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>elseagent</title>
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.35" r="0.85">
+      <stop offset="0" stop-color="#1A1F3D"/>
+      <stop offset="1" stop-color="#07090F"/>
+    </radialGradient>
+    <linearGradient id="neon" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#C084FC" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#A855F7" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="48" height="48" patternUnits="userSpaceOnUse">
+      <circle cx="24" cy="24" r="2.2" fill="#FFFFFF"/>
+    </pattern>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#dots)" opacity="0.07"/>
+
+  <!-- if: the plain path, dim -->
+  <path d="M430 840 V200" stroke="#2C3354" stroke-width="64" stroke-linecap="round" fill="none"/>
+  <circle cx="430" cy="200" r="44" fill="#07090F" stroke="#2C3354" stroke-width="22"/>
+
+  <!-- else: the branch that lights up -->
+  <path d="M430 640 C430 470 620 470 620 330 V300" stroke="url(#neon)" stroke-width="64"
+        stroke-linecap="round" fill="none" filter="url(#glow)"/>
+  <circle cx="620" cy="250" r="170" fill="url(#halo)"/>
+  <circle cx="620" cy="250" r="62" fill="#F5F3FF" filter="url(#glow)"/>
+  <circle cx="620" cy="250" r="34" fill="#A855F7"/>
+</svg>
