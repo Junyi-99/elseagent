@@ -2,6 +2,12 @@ import { eq, lt } from "drizzle-orm";
 import type { StateDb } from "./db.ts";
 import { sessions } from "./schema.ts";
 
+export interface SessionInfo {
+  threadId: string;
+  /** Slack ts of the last message Codex has seen in this conversation. */
+  lastSeenTs: string | null;
+}
+
 /** Maps a Slack conversation to the Codex thread that holds its context. */
 export class SessionStore {
   constructor(
@@ -9,24 +15,27 @@ export class SessionStore {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** The Codex thread for a conversation, unless it has been idle longer than `maxIdleMs`. */
-  threadFor(conversationKey: string, maxIdleMs: number): string | null {
+  /** The conversation's session, unless it has been idle longer than `maxIdleMs`. */
+  get(conversationKey: string, maxIdleMs: number): SessionInfo | null {
     const row = this.db
       .select()
       .from(sessions)
       .where(eq(sessions.conversationKey, conversationKey))
       .get();
     if (!row || row.lastActiveAt < this.now() - maxIdleMs) return null;
-    return row.threadId;
+    return { threadId: row.threadId, lastSeenTs: row.lastSeenTs };
   }
 
-  /** Record activity on a conversation and the Codex thread it now uses. */
-  touch(conversationKey: string, threadId: string): void {
+  /** Record a turn: the Codex thread the conversation uses and the last Slack message it saw. */
+  touch(conversationKey: string, threadId: string, lastSeenTs: string | null = null): void {
     const lastActiveAt = this.now();
     this.db
       .insert(sessions)
-      .values({ conversationKey, threadId, lastActiveAt })
-      .onConflictDoUpdate({ target: sessions.conversationKey, set: { threadId, lastActiveAt } })
+      .values({ conversationKey, threadId, lastActiveAt, lastSeenTs })
+      .onConflictDoUpdate({
+        target: sessions.conversationKey,
+        set: { threadId, lastActiveAt, lastSeenTs },
+      })
       .run();
   }
 

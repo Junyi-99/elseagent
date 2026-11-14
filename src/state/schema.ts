@@ -10,6 +10,8 @@ export const sessions = sqliteTable(
     threadId: text("thread_id").notNull(),
     /** Unix epoch milliseconds. */
     lastActiveAt: integer("last_active_at").notNull(),
+    /** Slack ts of the last message Codex has seen; thread context starts after it. */
+    lastSeenTs: text("last_seen_ts"),
   },
   (t) => [index("sessions_last_active").on(t.lastActiveAt)],
 );

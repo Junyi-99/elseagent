@@ -3,6 +3,7 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Codex } from "@openai/codex-sdk";
+import { SLACK_INSTRUCTIONS } from "./agent/instructions.ts";
 import {
   AGENT_THREAD_DEFAULTS,
   buildCodexOptions,
@@ -61,14 +62,17 @@ describe("buildThreadOptions", () => {
 });
 
 describe("buildCodexOptions", () => {
-  test("passes the agent prompt as developer_instructions", () => {
-    expect(buildCodexOptions("You are a reviewer.", "/bin/codex")).toEqual({
-      codexPathOverride: "/bin/codex",
-      config: { developer_instructions: "You are a reviewer." },
-    });
+  test("sends the Slack instructions followed by the agent prompt", () => {
+    const opts = buildCodexOptions("You are a reviewer.", "/bin/codex");
+    expect(opts.codexPathOverride).toBe("/bin/codex");
+    const instructions = String(opts.config?.developer_instructions);
+    expect(instructions.startsWith(SLACK_INSTRUCTIONS)).toBe(true);
+    expect(instructions.endsWith("# Your role\n\nYou are a reviewer.")).toBe(true);
   });
 
-  test("without a prompt it is a plain Codex session", () => {
-    expect(buildCodexOptions(undefined, "/bin/codex")).toEqual({ codexPathOverride: "/bin/codex" });
+  test("without a prompt only the Slack instructions are sent", () => {
+    expect(buildCodexOptions(undefined, "/bin/codex").config).toEqual({
+      developer_instructions: SLACK_INSTRUCTIONS,
+    });
   });
 });

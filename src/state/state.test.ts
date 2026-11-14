@@ -30,27 +30,35 @@ describe("SessionStore", () => {
   test("maps a conversation to its Codex thread and expires idle ones", () => {
     let now = 1_000 * DAY;
     const store = new SessionStore(openStateDb(":memory:"), () => now);
-    expect(store.threadFor("C1:1.0", 7 * DAY)).toBeNull();
+    expect(store.get("C1:1.0", 7 * DAY)).toBeNull();
 
     store.touch("C1:1.0", "thread-a");
-    expect(store.threadFor("C1:1.0", 7 * DAY)).toBe("thread-a");
+    expect(store.get("C1:1.0", 7 * DAY)?.threadId).toBe("thread-a");
 
     now += 6 * DAY;
     store.touch("C1:1.0", "thread-a"); // activity resets the idle clock
     now += 6 * DAY;
-    expect(store.threadFor("C1:1.0", 7 * DAY)).toBe("thread-a");
+    expect(store.get("C1:1.0", 7 * DAY)?.threadId).toBe("thread-a");
 
     now += 2 * DAY; // 8 days idle
-    expect(store.threadFor("C1:1.0", 7 * DAY)).toBeNull();
+    expect(store.get("C1:1.0", 7 * DAY)).toBeNull();
     expect(store.expire(7 * DAY)).toBe(1);
     expect(store.expire(7 * DAY)).toBe(0);
+  });
+
+  test("remembers the last Slack message Codex saw", () => {
+    const store = new SessionStore(openStateDb(":memory:"));
+    store.touch("C1:1.0", "t", "5.0");
+    expect(store.get("C1:1.0", DAY)).toEqual({ threadId: "t", lastSeenTs: "5.0" });
+    store.touch("C1:1.0", "t", "9.0");
+    expect(store.get("C1:1.0", DAY)?.lastSeenTs).toBe("9.0");
   });
 
   test("re-points a conversation to a new thread", () => {
     const store = new SessionStore(openStateDb(":memory:"));
     store.touch("D1", "old");
     store.touch("D1", "new");
-    expect(store.threadFor("D1", DAY)).toBe("new");
+    expect(store.get("D1", DAY)?.threadId).toBe("new");
   });
 });
 

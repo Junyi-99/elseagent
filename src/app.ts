@@ -62,6 +62,15 @@ export async function startApp(
       sessions,
       threadOptions,
       replyTo: bot.replyTo,
+      threadContext: (message, afterTs) =>
+        message.threadTs
+          ? bot.threadContext({
+              channel: message.channel,
+              threadTs: message.threadTs,
+              afterTs,
+              beforeTs: message.ts,
+            })
+          : Promise.resolve({ messages: [], omitted: 0 }), // top-level DM: nothing to add
       turnTimeoutMs: turnTimeoutMinutes * MINUTE,
       sessionIdleMs,
     }),

@@ -46,6 +46,12 @@ The agent replies to `@mentions` in channels (in a thread) and to DMs.
 
 - Each Slack thread (or a DM's top level) is one conversation, mapped to one Codex session.
   Follow-ups in the thread continue that session; Codex keeps the history.
+- In channels the agent only acts when `@`-mentioned, but it reads the whole thread: each turn
+  includes the messages posted since its last reply (the whole thread for a new session).
+- Codex gets built-in instructions for working in Slack (ask instead of guessing, end the turn
+  to wait for an answer, Slack-friendly Markdown); `agent.prompt` is added after them.
+- When Codex needs a decision it can offer choices, shown as buttons. Clicking one records the
+  pick on the message and sends it to the agent as the next message.
 - At most `agent.maxConcurrent` Codex turns run at once. Further messages wait in a queue
   (first come, first served, one turn at a time per conversation), shown with ⏳.
   👀 means working, ✅ done, ❌ failed or timed out.

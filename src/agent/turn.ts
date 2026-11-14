@@ -1,6 +1,7 @@
 import type { Codex, ThreadOptions } from "@openai/codex-sdk";
-import type { Reply, ReplyTarget } from "../slack/index.ts";
+import type { ContextMessage, Reply, ReplyTarget, ThreadContext } from "../slack/index.ts";
 import type { QueuedMessage, SessionStore } from "../state/index.ts";
+import { parseReply, REPLY_SCHEMA } from "./reply.ts";
 import type { TurnRunner } from "./scheduler.ts";
 
 /** Reactions on the user's message that show where it is. */
@@ -13,22 +14,39 @@ export const REACTIONS = {
 
 export interface TurnDeps {
   codex: Pick<Codex, "startThread" | "resumeThread">;
-  sessions: Pick<SessionStore, "threadFor" | "touch">;
+  sessions: Pick<SessionStore, "get" | "touch">;
   threadOptions: ThreadOptions;
   replyTo(target: ReplyTarget): Reply;
+  /** Thread messages after `afterTs` (null: from the start) and before the message itself. */
+  threadContext(message: QueuedMessage, afterTs: string | null): Promise<ThreadContext>;
   turnTimeoutMs: number;
   sessionIdleMs: number;
   logger?: Pick<Console, "warn">;
 }
 
-/** What Codex sees for a Slack message: who said it, then the text. */
-export function formatInput(message: Pick<QueuedMessage, "user" | "text">): string {
-  return `<@${message.user}>: ${message.text}`;
+const line = (m: ContextMessage) => `<@${m.user}>: ${m.text}`;
+
+/** What Codex sees: thread messages it hasn't seen yet, then the message addressed to it. */
+export function formatInput(
+  message: Pick<QueuedMessage, "user" | "text">,
+  context: ThreadContext,
+): string {
+  const current = line(message);
+  if (context.messages.length === 0) return current;
+  const omitted = context.omitted ? `(${context.omitted} earlier messages omitted)\n` : "";
+  return [
+    "Messages in this thread since your last reply:",
+    omitted + context.messages.map(line).join("\n"),
+    "",
+    "Message for you:",
+    current,
+  ].join("\n");
 }
 
 /**
  * Run one Codex turn for a queued Slack message: continue the conversation's Codex thread (or
- * start one), stop it after the timeout or on shutdown, and post the outcome back to Slack.
+ * start one) with the thread messages it hasn't seen, stop it after the timeout or on shutdown,
+ * and post the reply (with choice buttons) back to Slack.
  */
 export function createTurnRunner(deps: TurnDeps): TurnRunner {
   const { codex, sessions, threadOptions, turnTimeoutMs, sessionIdleMs, logger = console } = deps;
@@ -38,18 +56,27 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     await reply.unreact(REACTIONS.queued);
     await reply.react(REACTIONS.working);
 
-    const existing = sessions.threadFor(message.conversationKey, sessionIdleMs);
-    const thread = existing
-      ? codex.resumeThread(existing, threadOptions)
+    const session = sessions.get(message.conversationKey, sessionIdleMs);
+    const thread = session
+      ? codex.resumeThread(session.threadId, threadOptions)
       : codex.startThread(threadOptions);
     const timeout = AbortSignal.timeout(turnTimeoutMs);
 
     let outcome: keyof typeof REACTIONS = "failed";
     try {
-      const turn = await thread.run(formatInput(message), {
+      // A new session gets the whole thread so far; a continuing one only what it hasn't seen.
+      const context = await deps
+        .threadContext(message, session?.lastSeenTs ?? null)
+        .catch((err: Error): ThreadContext => {
+          logger.warn(`slack: could not read thread context: ${err.message}`);
+          return { messages: [], omitted: 0 };
+        });
+      const turn = await thread.run(formatInput(message, context), {
+        outputSchema: REPLY_SCHEMA,
         signal: AbortSignal.any([timeout, shutdown]),
       });
-      await reply.post(turn.finalResponse.trim() || "_(no response)_");
+      const { message: text, choices } = parseReply(turn.finalResponse);
+      await reply.post(text.trim() || "_(no response)_", choices);
       outcome = "done";
     } catch (err) {
       if (shutdown.aborted) {
@@ -65,7 +92,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       }
     } finally {
       // Keep the mapping even after a failure: the thread holds whatever context was built.
-      if (thread.id) sessions.touch(message.conversationKey, thread.id);
+      if (thread.id) sessions.touch(message.conversationKey, thread.id, message.ts);
       await reply.unreact(REACTIONS.working);
       await reply.react(REACTIONS[outcome]);
     }

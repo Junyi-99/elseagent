@@ -1,4 +1,5 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
+import { buildInstructions } from "./agent/instructions.ts";
 import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 
@@ -20,14 +21,13 @@ export function buildThreadOptions(config: CodexConfig, workingDirectory: string
 }
 
 /**
- * Client-level Codex options. The agent prompt becomes Codex's `developer_instructions`, so it
- * applies to every thread on top of Codex's own system prompt; without a prompt this is a plain
- * Codex session.
+ * Client-level Codex options. The built-in Slack instructions plus the agent prompt become
+ * Codex's `developer_instructions`, applied to every thread on top of Codex's own system prompt.
  */
 export function buildCodexOptions(prompt: string | undefined, codexPath: string): CodexOptions {
   return {
     codexPathOverride: codexPath,
-    ...(prompt && { config: { developer_instructions: prompt } }),
+    config: { developer_instructions: buildInstructions(prompt) },
   };
 }
 

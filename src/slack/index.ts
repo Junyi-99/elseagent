@@ -1,9 +1,12 @@
-import { App, LogLevel, webApi } from "@slack/bolt";
+import { App, type BlockButtonAction, LogLevel, webApi } from "@slack/bolt";
 import { ConfigError, type SlackConfig } from "../config/index.ts";
 import { joinChannels, type Logger } from "./channels.ts";
+import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
+import { fetchThreadContext, type ThreadContext } from "./context.ts";
 import { splitMarkdown } from "./markdown.ts";
 import { fromDirectMessage, fromMention, type IncomingMessage } from "./message.ts";
 
+export type { ContextMessage, ThreadContext } from "./context.ts";
 export { conversationKey, type IncomingMessage } from "./message.ts";
 
 export interface SlackIdentity {
@@ -25,8 +28,11 @@ export interface ReplyTarget {
 
 /** Ways to respond to a message. */
 export interface Reply {
-  /** Post Markdown in the conversation, split into several messages if it is long. */
-  post(markdown: string): Promise<void>;
+  /**
+   * Post Markdown in the conversation, split into several messages if it is long. With
+   * `choices`, the last message shows them as buttons; a click arrives as a new message.
+   */
+  post(markdown: string, choices?: string[]): Promise<void>;
   /** Add an emoji reaction to the message, e.g. "eyes". Errors are ignored. */
   react(name: string): Promise<void>;
   /** Remove one of our reactions from the message. Errors are ignored. */
@@ -39,6 +45,13 @@ export interface SlackBot {
   identity: SlackIdentity;
   /** Reply to a message, including one received before a restart. */
   replyTo(target: ReplyTarget): Reply;
+  /** Thread messages strictly between `afterTs` (null: thread start) and `beforeTs`, minus ours. */
+  threadContext(args: {
+    channel: string;
+    threadTs: string;
+    afterTs: string | null;
+    beforeTs: string;
+  }): Promise<ThreadContext>;
   /** Connect, join the configured channels, and start delivering messages to `onMessage`. */
   start(onMessage: MessageHandler): Promise<void>;
   stop(): Promise<void>;
@@ -76,13 +89,20 @@ export async function createSlackBot(
   const { client } = app;
 
   const replyTo = (target: ReplyTarget): Reply => ({
-    async post(markdown) {
-      for (const part of splitMarkdown(markdown)) {
-        await client.chat.postMessage({
-          channel: target.channel,
-          thread_ts: target.threadTs ?? undefined,
-          markdown_text: part,
-        });
+    async post(markdown, choices = []) {
+      const parts = splitMarkdown(markdown);
+      for (const [i, part] of parts.entries()) {
+        const thread_ts = target.threadTs ?? undefined;
+        if (i === parts.length - 1 && choices.length > 0) {
+          const blocks = choiceBlocks(part, choices);
+          await client.chat.postMessage({ channel: target.channel, thread_ts, blocks, text: part });
+        } else {
+          await client.chat.postMessage({
+            channel: target.channel,
+            thread_ts,
+            markdown_text: part,
+          });
+        }
       }
     },
     async react(name) {
@@ -104,6 +124,7 @@ export async function createSlackBot(
   return {
     identity,
     replyTo,
+    threadContext: (args) => fetchThreadContext(client, args, identity.userId),
     async start(onMessage) {
       const dispatch = async (message: IncomingMessage) => {
         const reply = replyTo(message);
@@ -121,6 +142,29 @@ export async function createSlackBot(
       app.message(async ({ message: event }) => {
         const message = fromDirectMessage(event, identity.userId);
         if (message) await dispatch(message);
+      });
+      // A choice button: record the pick on the message, then treat it as the user's reply.
+      app.action<BlockButtonAction>({ action_id: CHOICE_ACTION }, async ({ ack, body, action }) => {
+        await ack();
+        const channel = body.channel?.id;
+        const posted = body.message;
+        if (!channel || !posted) return;
+        await client.chat
+          .update({
+            channel,
+            ts: posted.ts,
+            text: posted.text ?? action.value ?? "",
+            blocks: resolvedBlocks(posted.blocks ?? [], body.user.id, action.value ?? ""),
+          })
+          .catch((err: Error) => logger.warn(`slack: could not update choices: ${err.message}`));
+        await dispatch({
+          channel,
+          ts: posted.ts,
+          threadTs: posted.thread_ts,
+          user: body.user.id,
+          text: action.value ?? "",
+          isDirect: channel.startsWith("D"),
+        });
       });
       await app.start();
       await joinChannels(app.client, config.channels, logger);
