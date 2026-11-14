@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import pkg from "../package.json";
 import { startApp } from "./app.ts";
-import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, loadConfig } from "./config/index.ts";
+import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, expandHome, loadConfig } from "./config/index.ts";
 
 export function buildProgram(): Command {
   const program = new Command()
@@ -35,7 +35,7 @@ export function buildProgram(): Command {
             `error: working directory not found or not a directory: ${workingDirectory}`,
           );
         }
-        const configPath = resolve(opts.config);
+        const configPath = resolve(expandHome(opts.config));
         const config = await loadConfig(configPath);
         await startApp(config, { configPath, workingDirectory, dryRun: opts.dryRun });
       },
@@ -43,11 +43,11 @@ export function buildProgram(): Command {
 
   program
     .command("init")
-    .description("generate a minimal config.yaml")
-    .option("-o, --output <path>", "where to write the config", "config.yaml")
+    .description("generate a minimal config file")
+    .option("-o, --output <path>", "where to write the config", DEFAULT_CONFIG_PATH)
     .option("-f, --force", "overwrite an existing file", false)
     .action(async (opts: { output: string; force: boolean }) => {
-      const out = resolve(opts.output);
+      const out = resolve(expandHome(opts.output));
       if (!opts.force && (await Bun.file(out).exists())) {
         program.error(`${out} already exists. Use --force to overwrite.`);
       }
@@ -55,7 +55,8 @@ export function buildProgram(): Command {
       await Bun.write(out, CONFIG_TEMPLATE);
       console.log(`Wrote ${out}`);
       console.log("Fill in slack.botToken and slack.appToken, then run:");
-      console.log(`  elseagent run -c ${out} [working-directory]`);
+      const isDefault = out === resolve(expandHome(DEFAULT_CONFIG_PATH));
+      console.log(`  elseagent run ${isDefault ? "" : `-c ${out} `}[working-directory]`);
     });
 
   return program;

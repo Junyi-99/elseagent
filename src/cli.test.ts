@@ -6,8 +6,9 @@ import { CONFIG_TEMPLATE } from "./config/index.ts";
 
 const entry = join(import.meta.dir, "index.ts");
 
+/** Run the CLI with HOME pointed at the test directory, so ~/.elseagent.yaml is isolated. */
 function run(args: string[], cwd: string) {
-  const proc = Bun.spawnSync(["bun", entry, ...args], { cwd });
+  const proc = Bun.spawnSync(["bun", entry, ...args], { cwd, env: { ...process.env, HOME: cwd } });
   return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
 }
 
@@ -29,10 +30,24 @@ describe("cli", () => {
     expect(out).toMatch(/init \[options\]/);
   });
 
-  test("init writes config.yaml in cwd", async () => {
+  test("init writes ~/.elseagent.yaml by default", async () => {
     const res = run(["init"], dir);
     expect(res.code).toBe(0);
-    expect(await Bun.file(join(dir, "config.yaml")).text()).toBe(CONFIG_TEMPLATE);
+    expect(await Bun.file(join(dir, ".elseagent.yaml")).text()).toBe(CONFIG_TEMPLATE);
+    expect(res.stdout).toContain("elseagent run [working-directory]");
+  });
+
+  test("run reads ~/.elseagent.yaml by default", async () => {
+    await Bun.write(join(dir, ".elseagent.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
+    const res = run(["run", "--dry-run"], dir);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toMatch(new RegExp(`config: +${join(dir, ".elseagent.yaml")}\\n`));
+    await Bun.write(join(dir, ".elseagent.yaml"), CONFIG_TEMPLATE);
+  });
+
+  test("-c and -o accept ~ paths", async () => {
+    expect(run(["init", "-o", "~/sub/a.yaml"], dir).code).toBe(0);
+    expect(await Bun.file(join(dir, "sub/a.yaml")).exists()).toBe(true);
   });
 
   test("init refuses to overwrite without --force", () => {
@@ -49,7 +64,7 @@ describe("cli", () => {
   });
 
   test("run with -c reports validation errors", () => {
-    const res = run(["run", "-c", "config.yaml"], dir);
+    const res = run(["run"], dir);
     expect(res.code).toBe(1);
     expect(res.stderr).toContain("slack.botToken is still the placeholder");
   });

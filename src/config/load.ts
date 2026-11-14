@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+import { expandHome } from "./paths.ts";
 import { type Config, configSchema } from "./schema.ts";
 
 export class ConfigError extends Error {
@@ -29,9 +30,11 @@ export async function loadConfig(path: string): Promise<Config> {
   }
 
   const config = result.data;
+  const baseDir = dirname(absPath);
+  config.agent.stateDir = resolve(baseDir, expandHome(config.agent.stateDir));
   // A bare command name (e.g. "codex") is looked up on PATH, so only resolve real paths.
   if (config.codex.path?.includes("/")) {
-    config.codex.path = resolve(dirname(absPath), config.codex.path);
+    config.codex.path = resolve(baseDir, expandHome(config.codex.path));
   }
   return config;
 }

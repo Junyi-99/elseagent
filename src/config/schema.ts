@@ -1,7 +1,8 @@
 import type { ModelReasoningEffort } from "@openai/codex-sdk";
 import { z } from "zod";
 
-export const DEFAULT_CONFIG_PATH = "/etc/elseagent/config.yaml";
+/** Shown as-is in help; expanded with `expandHome` before use. */
+export const DEFAULT_CONFIG_PATH = "~/.elseagent.yaml";
 
 const REASONING_EFFORTS = [
   "minimal",
@@ -39,11 +40,14 @@ const agentSchema = z.object({
   // Codex turns (one `codex exec` each) running at the same time. Idle sessions don't count.
   maxConcurrent: positiveInt("agent.maxConcurrent").default(16),
   // Messages waiting for a free slot; beyond this new messages are turned away.
-  maxQueue: positiveInt("agent.maxQueue").default(100),
+  maxQueue: positiveInt("agent.maxQueue").default(1024),
   // A turn running longer than this is aborted and its slot freed.
   turnTimeoutMinutes: positiveInt("agent.turnTimeoutMinutes").default(30),
   // A conversation with no activity for this long is forgotten; its next message starts fresh.
   sessionIdleDays: positiveInt("agent.sessionIdleDays").default(7),
+  // Where the agent keeps its SQLite state (session mapping, message queue). `~` is expanded;
+  // relative paths resolve against the config file.
+  stateDir: z.string().trim().min(1).default("~/.elseagent"),
 });
 
 // Only what the user may override. Agent-mode behaviour (sandbox, approvals, git check)

@@ -1,4 +1,4 @@
-# elseagent configuration (default location: /etc/elseagent/config.yaml).
+# elseagent configuration (default location: ~/.elseagent.yaml).
 # Only required settings are listed; every option and its default: docs/config.md
 
 slack:

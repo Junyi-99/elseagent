@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CONFIG_TEMPLATE,
@@ -70,9 +70,10 @@ describe("loadConfig", () => {
     const defaults = await loadConfig(await writeConfig("limits-default.yaml", base));
     expect(defaults.agent).toEqual({
       maxConcurrent: 16,
-      maxQueue: 100,
+      maxQueue: 1024,
       turnTimeoutMinutes: 30,
       sessionIdleDays: 7,
+      stateDir: join(homedir(), ".elseagent"),
     });
     const custom = await writeConfig(
       "limits.yaml",
@@ -90,6 +91,14 @@ describe("loadConfig", () => {
     expect(loadConfig(zero)).rejects.toThrow("agent.maxConcurrent must be greater than 0");
     const frac = await writeConfig("frac.yaml", `agent:\n  sessionIdleDays: 1.5\n${base}`);
     expect(loadConfig(frac)).rejects.toThrow("agent.sessionIdleDays must be a whole number");
+  });
+
+  test("agent.stateDir expands ~ and resolves relative paths against the config file", async () => {
+    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const home = await writeConfig("state-home.yaml", `agent:\n  stateDir: ~/agents/a\n${base}`);
+    expect((await loadConfig(home)).agent.stateDir).toBe(join(homedir(), "agents/a"));
+    const rel = await writeConfig("state-rel.yaml", `agent:\n  stateDir: ./state\n${base}`);
+    expect((await loadConfig(rel)).agent.stateDir).toBe(join(dir, "state"));
   });
 
   test("codex section is optional", async () => {

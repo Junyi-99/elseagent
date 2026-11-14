@@ -1,0 +1,103 @@
+import { describe, expect, test } from "bun:test";
+import {
+  MessageQueue,
+  type NewQueuedMessage,
+  openStateDb,
+  type QueuedMessage,
+} from "../state/index.ts";
+import { Scheduler } from "./scheduler.ts";
+
+const msg = (conversationKey: string, text = conversationKey): NewQueuedMessage => ({
+  conversationKey,
+  channel: "C1",
+  ts: "1.0",
+  threadTs: null,
+  user: "U1",
+  text,
+});
+
+/** A runner whose turns finish only when the test says so. */
+function controllableRunner() {
+  const started: string[] = [];
+  const finishers = new Map<string, () => void>();
+  const run = (m: QueuedMessage, shutdown: AbortSignal) =>
+    new Promise<void>((resolve) => {
+      started.push(m.text);
+      finishers.set(m.text, resolve);
+      shutdown.addEventListener("abort", () => resolve());
+    });
+  const finish = async (text: string) => {
+    finishers.get(text)?.();
+    await Bun.sleep(0);
+  };
+  return { run, started, finish };
+}
+
+function setup(maxConcurrent: number, maxQueue = 100) {
+  const queue = new MessageQueue(openStateDb(":memory:"));
+  const runner = controllableRunner();
+  const scheduler = new Scheduler(queue, runner.run, { maxConcurrent, maxQueue });
+  return { queue, scheduler, ...runner };
+}
+
+describe("Scheduler", () => {
+  test("starts up to maxConcurrent turns, queues the rest in order", async () => {
+    const { scheduler, started, finish } = setup(2);
+    expect(scheduler.submit(msg("A"))).toEqual({ status: "started" });
+    expect(scheduler.submit(msg("B"))).toEqual({ status: "started" });
+    expect(scheduler.submit(msg("C"))).toEqual({ status: "queued", position: 1 });
+    expect(scheduler.submit(msg("D"))).toEqual({ status: "queued", position: 2 });
+    expect(started).toEqual(["A", "B"]);
+
+    await finish("B");
+    expect(started).toEqual(["A", "B", "C"]);
+    expect(scheduler.runningCount).toBe(2);
+  });
+
+  test("runs one turn at a time per conversation", async () => {
+    const { scheduler, started, finish } = setup(4);
+    scheduler.submit(msg("A", "a1"));
+    expect(scheduler.submit(msg("A", "a2"))).toEqual({ status: "queued", position: 1 });
+    scheduler.submit(msg("B", "b1"));
+    expect(started).toEqual(["a1", "b1"]);
+
+    await finish("a1");
+    expect(started).toEqual(["a1", "b1", "a2"]);
+  });
+
+  test("rejects when the queue is full", () => {
+    const { scheduler } = setup(1, 2);
+    scheduler.submit(msg("A"));
+    scheduler.submit(msg("B"));
+    scheduler.submit(msg("C"));
+    expect(scheduler.submit(msg("D"))).toEqual({ status: "rejected" });
+  });
+
+  test("removes finished messages and survives a failing turn", async () => {
+    const queue = new MessageQueue(openStateDb(":memory:"));
+    const errors: string[] = [];
+    const scheduler = new Scheduler(
+      queue,
+      async (m) => {
+        if (m.text === "boom") throw new Error("boom");
+      },
+      { maxConcurrent: 1, maxQueue: 10, onError: (e) => errors.push((e as Error).message) },
+    );
+    scheduler.submit(msg("A", "boom"));
+    scheduler.submit(msg("B", "ok"));
+    await Bun.sleep(10);
+    expect(errors).toEqual(["boom"]);
+    expect(queue.pendingCount()).toBe(0);
+    expect(queue.claimNext()).toBeNull();
+  });
+
+  test("stop aborts running turns and refuses new work", async () => {
+    const { scheduler, started } = setup(1);
+    scheduler.submit(msg("A"));
+    scheduler.submit(msg("B"));
+    await scheduler.stop();
+    expect(started).toEqual(["A"]);
+    expect(scheduler.runningCount).toBe(0);
+    expect(scheduler.submit(msg("C"))).toEqual({ status: "rejected" });
+  });
+});

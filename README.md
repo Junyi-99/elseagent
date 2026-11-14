@@ -5,12 +5,12 @@ A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/
 ## Usage
 
 ```bash
-# Generate a minimal config (default: ./config.yaml)
+# Generate a minimal config (default: ~/.elseagent.yaml)
 elseagent init
-elseagent init -o /etc/elseagent/config.yaml --force
+elseagent init -o ./agents/reviewer.yaml --force
 
 # Start the agent: elseagent run [-c config] [working-directory]
-elseagent run                                  # /etc/elseagent/config.yaml, works in the current directory
+elseagent run                                  # ~/.elseagent.yaml, works in the current directory
 elseagent run -c ./config.yaml /srv/workspace  # custom config and working directory
 elseagent run -c ./config.yaml --dry-run       # validate config, codex and working directory, then exit
 ```
@@ -42,6 +42,17 @@ Slack, not in `config.yaml`.
 
 The agent replies to `@mentions` in channels (in a thread) and to DMs.
 
+## How messages are handled
+
+- Each Slack thread (or a DM's top level) is one conversation, mapped to one Codex session.
+  Follow-ups in the thread continue that session; Codex keeps the history.
+- At most `agent.maxConcurrent` Codex turns run at once. Further messages wait in a queue
+  (first come, first served, one turn at a time per conversation), shown with ⏳.
+  👀 means working, ✅ done, ❌ failed or timed out.
+- The session mapping and the queue live in SQLite under `agent.stateDir`, so queued messages
+  survive a restart. Messages that were mid-turn during a restart are reported back, not rerun.
+- Conversations idle for `agent.sessionIdleDays` are forgotten; their next message starts fresh.
+
 ## Build & distribute
 
 ```bash
@@ -55,11 +66,12 @@ The output is a single self-contained executable. It does **not** include the `c
 
 ## Development
 
-| Command             | Description                                  |
-| ------------------- | -------------------------------------------- |
-| `bun install`       | Install dependencies                         |
-| `bun run start`     | Run locally during development               |
-| `bun run build`     | Compile to a single executable               |
-| `bun run typecheck` | Type check (`bun check`)                     |
-| `bun run lint`      | Biome lint + format, applying fixes in place |
-| `bun test`          | Run tests                                    |
+| Command               | Description                                                                     |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `bun install`         | Install dependencies                                                            |
+| `bun run start`       | Run locally during development                                                  |
+| `bun run build`       | Compile to a single executable                                                  |
+| `bun run typecheck`   | Type check (`bun check`)                                                        |
+| `bun run lint`        | Biome lint + format, applying fixes in place                                    |
+| `bun test`            | Run tests                                                                       |
+| `bun run db:generate` | After changing `src/state/schema.ts`: generate a Drizzle migration and embed it |

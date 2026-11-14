@@ -53,3 +53,11 @@ export function fromDirectMessage(event: MessageEvent, botUserId: string): Incom
     isDirect: true,
   };
 }
+
+/**
+ * Identifies the conversation a message belongs to, which maps to one Codex session:
+ * a thread (`channel:threadTs`), or a DM's top level (`channel`).
+ */
+export function conversationKey(message: Pick<IncomingMessage, "channel" | "threadTs">): string {
+  return message.threadTs ? `${message.channel}:${message.threadTs}` : message.channel;
+}

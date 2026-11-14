@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fromDirectMessage, fromMention, stripMention } from "./message.ts";
+import { conversationKey, fromDirectMessage, fromMention, stripMention } from "./message.ts";
 
 const BOT = "UBOT";
 
@@ -87,5 +87,12 @@ describe("fromDirectMessage", () => {
     expect(fromDirectMessage(dm({ subtype: "message_changed" }), BOT)).toBeNull();
     expect(fromDirectMessage(dm({ bot_id: "B1" }), BOT)).toBeNull();
     expect(fromDirectMessage(dm({ user: BOT }), BOT)).toBeNull();
+  });
+});
+
+describe("conversationKey", () => {
+  test("a thread is its own conversation; a DM's top level is one conversation", () => {
+    expect(conversationKey({ channel: "C1", threadTs: "1.0" })).toBe("C1:1.0");
+    expect(conversationKey({ channel: "D1", threadTs: undefined })).toBe("D1");
   });
 });

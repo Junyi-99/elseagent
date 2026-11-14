@@ -1,0 +1,105 @@
+import { and, asc, count, eq, inArray, lte, notExists, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import type { StateDb } from "./db.ts";
+import { queue } from "./schema.ts";
+
+/** A Slack message waiting for, or being handled by, a Codex turn. */
+export interface QueuedMessage {
+  id: number;
+  conversationKey: string;
+  channel: string;
+  ts: string;
+  threadTs: string | null;
+  user: string;
+  text: string;
+}
+
+export type NewQueuedMessage = Omit<QueuedMessage, "id">;
+
+const columns = {
+  id: queue.id,
+  conversationKey: queue.conversationKey,
+  channel: queue.channel,
+  ts: queue.ts,
+  threadTs: queue.threadTs,
+  user: queue.user,
+  text: queue.text,
+};
+
+/**
+ * Persistent FIFO buffer of unanswered messages. Rows are removed when their turn ends.
+ * A conversation never has two messages running at once, so its turns happen in order.
+ */
+export class MessageQueue {
+  constructor(private readonly db: StateDb) {}
+
+  push(message: NewQueuedMessage): QueuedMessage {
+    return this.db.insert(queue).values(message).returning(columns).get();
+  }
+
+  pendingCount(): number {
+    const row = this.db.select({ n: count() }).from(queue).where(eq(queue.status, "pending")).get();
+    return row?.n ?? 0;
+  }
+
+  /** 1-based position among pending messages, oldest first. */
+  position(id: number): number {
+    const row = this.db
+      .select({ n: count() })
+      .from(queue)
+      .where(and(eq(queue.status, "pending"), lte(queue.id, id)))
+      .get();
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Atomically take the oldest pending message whose conversation has nothing running, and mark
+   * it running. Returns null when nothing is eligible.
+   */
+  claimNext(): QueuedMessage | null {
+    const running = alias(queue, "running");
+    const next = this.db
+      .select({ id: queue.id })
+      .from(queue)
+      .where(
+        and(
+          eq(queue.status, "pending"),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(running)
+              .where(
+                and(
+                  eq(running.status, "running"),
+                  eq(running.conversationKey, queue.conversationKey),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(asc(queue.id))
+      .limit(1);
+    return (
+      this.db
+        .update(queue)
+        .set({ status: "running" })
+        .where(inArray(queue.id, next))
+        .returning(columns)
+        .get() ?? null
+    );
+  }
+
+  /** The turn for this message ended (answered, failed or timed out): drop it. */
+  remove(id: number): void {
+    this.db.delete(queue).where(eq(queue.id, id)).run();
+  }
+
+  /**
+   * Messages still marked running belong to a previous process that stopped mid-turn. Remove
+   * and return them so the users can be told. They are not retried automatically, because the
+   * interrupted turn may already have changed files.
+   */
+  takeInterrupted(): QueuedMessage[] {
+    return this.db.delete(queue).where(eq(queue.status, "running")).returning(columns).all();
+  }
+}

@@ -12,11 +12,13 @@
     "build": "bun build src/index.ts --compile --outfile dist/elseagent",
     "typecheck": "bun check",
     "lint": "biome check --write .",
-    "test": "bun test"
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate && bun scripts/embed-migrations.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.11"
   },
   "peerDependencies": {
     "typescript": "^7"
@@ -25,6 +27,7 @@
     "@openai/codex-sdk": "^0.169.0",
     "@slack/bolt": "^5.1.0",
     "commander": "^15.1.0",
+    "drizzle-orm": "^0.45.4",
     "zod": "^4.6.7"
   }
 }
