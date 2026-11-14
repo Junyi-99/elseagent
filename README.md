@@ -80,6 +80,12 @@ channels are joined automatically; private ones need an `/invite` first.
 
 Anyone who can mention the agent can use these tools.
 
+## Docker and Kubernetes
+
+Two images from one [`Dockerfile`](Dockerfile): `base` (command-line tools for code, GitHub,
+cloud and media) and `full` (adds Chromium, LibreOffice, fonts and document tooling). The
+container is the agent's sandbox. See [`docs/docker.md`](docs/docker.md).
+
 ## Build & distribute
 
 ```bash

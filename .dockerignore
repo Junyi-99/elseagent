@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+*.bun-build
+config.yaml
+*.sqlite
+*.sqlite-*
+.elseagent*
+.vscode
+.idea
