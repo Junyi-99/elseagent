@@ -1,23 +1,21 @@
 # elseagents
 
-To install dependencies:
+A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/codex-sdk`](https://www.npmjs.com/package/@openai/codex-sdk) and [`@slack/bolt`](https://slack.dev/bolt-js).
+
+## Setup
 
 ```bash
 bun install
+cp .env.example .env   # then fill in tokens
 ```
 
-To run:
+## Scripts
 
-```bash
-bun run index.ts
-```
-
-To type check:
-
-```bash
-bun check
-```
-
-Run `bun fmt` to format the code.
-
-This project was created using `bun init` in bun v1.4.4. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+| Command             | Description                        |
+| ------------------- | ---------------------------------- |
+| `bun run dev`       | Run with file watching             |
+| `bun run start`     | Run once                           |
+| `bun run typecheck` | Type check (`bun check`)           |
+| `bun run check`     | Biome lint + format + import check |
+| `bun run check:fix` | Apply Biome fixes and formatting   |
+| `bun test`          | Run tests                          |
