@@ -72,12 +72,12 @@ The output is a single self-contained executable. It does **not** include the `c
 
 ## Development
 
-| Command               | Description                                                                     |
-| --------------------- | ------------------------------------------------------------------------------- |
-| `bun install`         | Install dependencies                                                            |
-| `bun run start`       | Run locally during development                                                  |
-| `bun run build`       | Compile to a single executable                                                  |
-| `bun run typecheck`   | Type check (`bun check`)                                                        |
-| `bun run lint`        | Biome lint + format, applying fixes in place                                    |
-| `bun test`            | Run tests                                                                       |
-| `bun run db:generate` | After changing `src/state/schema.ts`: generate a Drizzle migration and embed it |
+| Command               | Description                                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`         | Install dependencies                                                                                                       |
+| `bun run start`       | Run locally during development                                                                                             |
+| `bun run build`       | Compile to a single executable                                                                                             |
+| `bun run typecheck`   | Type check (`bun check`)                                                                                                   |
+| `bun run lint`        | Biome lint + format, applying fixes in place                                                                               |
+| `bun test`            | Run tests                                                                                                                  |
+| `bun run db:generate` | After changing `src/state/schema.ts`: generate a Drizzle migration into `drizzle/` (embedded into the build automatically) |

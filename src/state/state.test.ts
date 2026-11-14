@@ -1,28 +1,49 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { readMigrationFiles } from "drizzle-orm/migrator";
 import { openStateDb } from "./db.ts";
-import { embeddedMigrations } from "./migrate.ts";
+import { EMBEDDED_MIGRATIONS } from "./migrate.ts";
 import { MessageQueue, type NewQueuedMessage } from "./queue.ts";
 import { SessionStore } from "./sessions.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("migrations", () => {
-  test("embedded migrations match drizzle/ exactly (run `bun run db:generate` if not)", () => {
-    const fromDisk = readMigrationFiles({
-      migrationsFolder: join(import.meta.dir, "../../drizzle"),
-    });
-    expect(embeddedMigrations()).toEqual(fromDisk);
+  test("every migration in drizzle/ is embedded", async () => {
+    const journal = (await Bun.file(
+      join(import.meta.dir, "../../drizzle/meta/_journal.json"),
+    ).json()) as {
+      entries: unknown[];
+    };
+    expect(EMBEDDED_MIGRATIONS).toHaveLength(journal.entries.length);
   });
 
-  test("create the tables and are not re-applied on reopen", () => {
-    const db = openStateDb(":memory:");
-    const tables = db.$client
-      .query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
-      .all()
-      .map((r) => (r as { name: string }).name);
-    expect(tables).toEqual(expect.arrayContaining(["__drizzle_migrations", "queue", "sessions"]));
+  test("build the current schema and are applied only once", () => {
+    const path = join(import.meta.dir, `.test-${crypto.randomUUID()}.sqlite`);
+    try {
+      openStateDb(path).$client.close();
+      const db = openStateDb(path); // reopen: nothing to apply
+      const columns = (table: string) =>
+        db.$client
+          .query(`SELECT name FROM pragma_table_info('${table}')`)
+          .all()
+          .map((r) => (r as { name: string }).name);
+      expect(columns("sessions")).toEqual([
+        "conversation_key",
+        "thread_id",
+        "last_active_at",
+        "last_seen_ts",
+      ]);
+      expect(columns("queue")).toContain("conversation_key");
+      expect(db.$client.query("SELECT COUNT(*) AS n FROM __drizzle_migrations").get()).toEqual({
+        n: EMBEDDED_MIGRATIONS.length,
+      });
+      db.$client.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"])
+        Bun.file(path + suffix)
+          .delete()
+          .catch(() => {});
+    }
   });
 });
 
