@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import pkg from "../package.json";
@@ -11,10 +11,19 @@ export function buildProgram(): Command {
     .description("Codex agent for Slack")
     .version(pkg.version ?? "0.0.0")
     .option("-c, --config <path>", "path to config file", DEFAULT_CONFIG_PATH)
-    .action(async (opts: { config: string }) => {
+    .argument("[workdir]", "directory the agent works in (default: current directory)")
+    .action(async (workdirArg: string | undefined, opts: { config: string }) => {
+      const workdir = resolve(workdirArg ?? process.cwd());
+      const isDir = await stat(workdir).then(
+        (s) => s.isDirectory(),
+        () => false,
+      );
+      if (!isDir) {
+        program.error(`error: workdir is not a directory: ${workdir}`);
+      }
       const configPath = resolve(opts.config);
       const config = await loadConfig(configPath);
-      await startApp(config, configPath);
+      await startApp(config, { configPath, workdir });
     });
 
   program
@@ -31,7 +40,7 @@ export function buildProgram(): Command {
       await Bun.write(out, CONFIG_TEMPLATE);
       console.log(`Wrote ${out}`);
       console.log("Fill in slack.botToken and slack.appToken, then run:");
-      console.log(`  elseagents -c ${out}`);
+      console.log(`  elseagents -c ${out} [workdir]`);
     });
 
   return program;

@@ -28,17 +28,10 @@ export async function loadConfig(path: string): Promise<Config> {
     throw new ConfigError(`Invalid config in ${absPath}:\n${z.prettifyError(result.error)}`);
   }
 
-  return resolvePaths(result.data, dirname(absPath));
-}
-
-function resolvePaths(config: Config, baseDir: string): Config {
-  const { codex } = config;
-  if (codex.workingDirectory) {
-    codex.workingDirectory = resolve(baseDir, codex.workingDirectory);
-  }
+  const config = result.data;
   // A bare command name (e.g. "codex") is looked up on PATH, so only resolve real paths.
-  if (codex.path?.includes("/")) {
-    codex.path = resolve(baseDir, codex.path);
+  if (config.codex.path?.includes("/")) {
+    config.codex.path = resolve(dirname(absPath), config.codex.path);
   }
   return config;
 }

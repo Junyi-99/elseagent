@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONFIG_TEMPLATE } from "./config/index.ts";
@@ -13,7 +13,8 @@ function run(args: string[], cwd: string) {
 
 let dir: string;
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "elseagents-cli-"));
+  // realpath: on macOS the tmpdir is a symlink (/var -> /private/var) and the CLI prints real paths.
+  dir = await realpath(await mkdtemp(join(tmpdir(), "elseagents-cli-")));
 });
 afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -51,10 +52,24 @@ describe("cli", () => {
     expect(res.stderr).toContain("elseagents init");
   });
 
-  test("run with a valid config starts", async () => {
+  test("run defaults workdir to the current directory", async () => {
     await Bun.write(join(dir, "ok.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
     const res = run(["-c", "ok.yaml"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain(join(dir, "ok.yaml"));
+    expect(res.stdout).toContain(`config:  ${join(dir, "ok.yaml")}`);
+    expect(res.stdout).toContain(`workdir: ${dir}`);
+  });
+
+  test("run accepts a workdir argument", async () => {
+    await mkdir(join(dir, "ws"), { recursive: true });
+    const res = run(["-c", "ok.yaml", "ws"], dir);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain(`workdir: ${join(dir, "ws")}`);
+  });
+
+  test("run rejects a workdir that is not a directory", () => {
+    const res = run(["-c", "ok.yaml", "does-not-exist"], dir);
+    expect(res.code).not.toBe(0);
+    expect(res.stderr).toContain("workdir is not a directory");
   });
 });

@@ -32,9 +32,7 @@ describe("loadConfig", () => {
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
     expect(config.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1" });
-    expect(config.codex.sandboxMode).toBe("workspace-write");
-    expect(config.codex.approvalPolicy).toBe("never");
-    expect(config.codex.skipGitRepoCheck).toBe(false);
+    expect(config.codex).toEqual({});
   });
 
   test("rejects the unfilled template with a clear message", async () => {
@@ -45,27 +43,33 @@ describe("loadConfig", () => {
     expect(err.message).toContain("slack.appToken is required");
   });
 
-  test("applies codex defaults when the section is missing", async () => {
+  test("codex section is optional", async () => {
     const path = await writeConfig("min.yaml", "slack:\n  botToken: a\n  appToken: b\n");
-    const config = await loadConfig(path);
-    expect(config.codex.sandboxMode).toBe("workspace-write");
+    expect((await loadConfig(path)).codex).toEqual({});
   });
 
-  test("resolves a relative workingDirectory against the config file", async () => {
+  test("accepts model and reasoningEffort overrides", async () => {
+    const path = await writeConfig(
+      "override.yaml",
+      "codex:\n  model: my-model\n  reasoningEffort: high\nslack:\n  botToken: a\n  appToken: b\n",
+    );
+    expect((await loadConfig(path)).codex).toEqual({ model: "my-model", reasoningEffort: "high" });
+  });
+
+  test("resolves a relative codex.path against the config file", async () => {
     const path = await writeConfig(
       "rel.yaml",
-      "slack:\n  botToken: a\n  appToken: b\ncodex:\n  workingDirectory: ./work\n",
+      "codex:\n  path: ./bin/codex\nslack:\n  botToken: a\n  appToken: b\n",
     );
-    const config = await loadConfig(path);
-    expect(config.codex.workingDirectory).toBe(join(dir, "work"));
+    expect((await loadConfig(path)).codex.path).toBe(join(dir, "bin/codex"));
   });
 
-  test("rejects invalid enum values", async () => {
+  test("rejects an invalid reasoningEffort", async () => {
     const path = await writeConfig(
       "bad.yaml",
-      "slack:\n  botToken: a\n  appToken: b\ncodex:\n  sandboxMode: yolo\n",
+      "codex:\n  reasoningEffort: extreme\nslack:\n  botToken: a\n  appToken: b\n",
     );
-    expect(loadConfig(path)).rejects.toThrow("sandboxMode");
+    expect(loadConfig(path)).rejects.toThrow("reasoningEffort");
   });
 
   test("reports a missing file", async () => {
@@ -88,8 +92,8 @@ describe("config.example.yaml", () => {
     expect(CONFIG_TEMPLATE).toContain(DEFAULT_CONFIG_PATH);
   });
 
-  test("covers every top-level section of the schema", () => {
+  test("lists every top-level section of the schema, in order", () => {
     const parsed = Bun.YAML.parse(CONFIG_TEMPLATE) as Record<string, unknown>;
-    expect(Object.keys(parsed).sort()).toEqual(Object.keys(configSchema.shape).sort());
+    expect(Object.keys(parsed)).toEqual(Object.keys(configSchema.shape));
   });
 });

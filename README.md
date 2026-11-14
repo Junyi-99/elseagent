@@ -9,12 +9,13 @@ A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/
 elseagents init
 elseagents init -o /etc/elseagents/config.yaml --force
 
-# Start the agent (reads /etc/elseagents/config.yaml by default)
-elseagents
-elseagents -c ./config.yaml
+# Start the agent: elseagents [-c config] [workdir]
+elseagents                                      # /etc/elseagents/config.yaml, works in the current directory
+elseagents -c ./config.yaml /srv/workspace      # custom config and working directory
 ```
 
-From source, replace `elseagents` with `bun src/index.ts`.
+Codex runs in agent mode: `workspace-write` sandbox, no approval prompts, allowed outside git
+repos. Only `model` and `reasoningEffort` can be overridden; everything else uses the Codex defaults.
 
 ## Configuration
 
@@ -36,7 +37,7 @@ The output is a single self-contained executable. It does **not** include the `c
 | Command             | Description                                  |
 | ------------------- | -------------------------------------------- |
 | `bun install`       | Install dependencies                         |
-| `bun run start`     | Run from source                              |
+| `bun run start`     | Run locally during development               |
 | `bun run build`     | Compile to a single executable               |
 | `bun run typecheck` | Type check (`bun check`)                     |
 | `bun run lint`      | Biome lint + format, applying fixes in place |
