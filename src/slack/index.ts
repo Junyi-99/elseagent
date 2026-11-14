@@ -1,4 +1,4 @@
-import { App, type BlockButtonAction, LogLevel, webApi } from "@slack/bolt";
+import { App, type BlockButtonAction, LogLevel, SocketModeReceiver, webApi } from "@slack/bolt";
 import { ConfigError, type SlackConfig } from "../config/index.ts";
 import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
@@ -13,6 +13,9 @@ import {
 
 export type { ContextMessage, ThreadContext } from "./context.ts";
 export { conversationKey, type IncomingMessage } from "./message.ts";
+
+/** How long Socket Mode waits for a pong (and for Slack's pings) before reconnecting. */
+export const SOCKET_PING_TIMEOUT_MS = 30_000;
 
 export interface SlackIdentity {
   /** The bot's user ID, e.g. U0123 (what <@U0123> mentions refer to). */
@@ -90,10 +93,18 @@ export async function createSlackBot(
     teamId: auth.team_id,
   };
 
+  // Socket Mode drops and reconnects when a pong to its ping is late. Its 5 s default trips on
+  // ordinary network hiccups; 30 s still notices a dead connection quickly (Slack's own pings
+  // to us are checked separately, with the same 30 s).
+  const receiver = new SocketModeReceiver({
+    appToken: config.appToken,
+    logLevel: LogLevel.WARN,
+    clientPingTimeout: SOCKET_PING_TIMEOUT_MS,
+    serverPingTimeout: SOCKET_PING_TIMEOUT_MS,
+  });
   const app = new App({
     token: config.botToken,
-    appToken: config.appToken,
-    socketMode: true,
+    receiver,
     logLevel: LogLevel.WARN,
     tokenVerificationEnabled: false,
     botUserId: auth.user_id,
