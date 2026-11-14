@@ -6,6 +6,9 @@ import { TOKEN_ENV, TURN_HEADER } from "./mcp/server.ts";
 
 type CodexConfigValue = NonNullable<CodexOptions["config"]>[string];
 
+/** Codex features turned off for every turn (same as `codex --disable plugins --disable apps`). */
+export const DISABLED_FEATURES = { plugins: false, apps: false } as const;
+
 /** Fixed agent-mode settings: act autonomously inside the working directory, never stop to ask. */
 export const AGENT_THREAD_DEFAULTS = {
   sandboxMode: "workspace-write",
@@ -56,6 +59,10 @@ export function buildCodexOptions({
 }: CodexClientOptions): CodexOptions {
   const config: NonNullable<CodexOptions["config"]> = {
     developer_instructions: buildInstructions(prompt),
+    // No ChatGPT apps (Gmail, Drive… connected to the Codex login's account) and no Codex
+    // plugins: the agent only gets the tools we give it. MCP servers configured here, like
+    // elseagent's own, are not affected.
+    features: DISABLED_FEATURES,
   };
   // The commands Codex runs get the configured variables explicitly (`set`), whatever Codex's
   // own default filtering of names like *TOKEN* is, and never the MCP token (`exclude`).

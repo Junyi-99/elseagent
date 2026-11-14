@@ -76,6 +76,7 @@ describe("buildCodexOptions", () => {
   test("without a prompt only the Slack instructions are sent", () => {
     expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).toEqual({
       developer_instructions: SLACK_INSTRUCTIONS,
+      features: { plugins: false, apps: false },
     });
   });
 });
@@ -99,6 +100,14 @@ describe("MCP registration", () => {
     expect(opts.config?.shell_environment_policy).toEqual({ exclude: ["ELSEAGENT_MCP_TOKEN"] });
     expect(JSON.stringify(opts.config)).not.toContain("secret");
   });
+});
+
+test("ChatGPT apps and Codex plugins are always off", () => {
+  const opts = buildCodexOptions({
+    codexPath: "/bin/codex",
+    mcp: { url: "http://127.0.0.1:1/mcp", token: "t", turnId: 1 },
+  });
+  expect(opts.config?.features).toEqual({ plugins: false, apps: false });
 });
 
 describe("config env", () => {
