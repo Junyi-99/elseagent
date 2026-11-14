@@ -12,7 +12,7 @@ export async function loadConfig(path: string): Promise<Config> {
   const file = Bun.file(absPath);
   if (!(await file.exists())) {
     throw new ConfigError(
-      `Config file not found: ${absPath}\nRun \`elseagents init\` to generate one, or pass -c <path>.`,
+      `Config file not found: ${absPath}\nRun \`elseagent init\` to generate one, or pass -c <path>.`,
     );
   }
 

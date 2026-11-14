@@ -1,4 +1,4 @@
-# Slack app manifest for one elseagents agent.
+# Slack app manifest for one elseagent agent.
 # Create the app at https://api.slack.com/apps > Create New App > From a manifest,
 # then change the two names below to this agent's name (keep them the same):
 #   display_information.name  - the app's name (app list, profile card, "APP" badge)

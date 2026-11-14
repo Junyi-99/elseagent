@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "elseagents",
+      "name": "elseagent",
       "dependencies": {
         "@openai/codex-sdk": "^0.169.0",
         "@slack/bolt": "^5.1.0",

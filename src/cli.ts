@@ -7,29 +7,43 @@ import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, loadConfig } from "./config/index
 
 export function buildProgram(): Command {
   const program = new Command()
-    .name("elseagents")
+    .name("elseagent")
     .description("Codex agent for Slack")
-    .version(pkg.version ?? "0.0.0")
+    .version(pkg.version ?? "0.0.0");
+
+  program
+    .command("run")
+    .description("start the agent")
     .option("-c, --config <path>", "path to config file", DEFAULT_CONFIG_PATH)
-    .option("--dry-run", "validate config, codex and workdir, then exit without connecting")
-    .argument("[workdir]", "directory the agent works in (default: current directory)")
-    .action(async (workdirArg: string | undefined, opts: { config: string; dryRun?: boolean }) => {
-      const workdir = resolve(workdirArg ?? process.cwd());
-      const isDir = await stat(workdir).then(
-        (s) => s.isDirectory(),
-        () => false,
-      );
-      if (!isDir) {
-        program.error(`error: workdir is not a directory: ${workdir}`);
-      }
-      const configPath = resolve(opts.config);
-      const config = await loadConfig(configPath);
-      await startApp(config, { configPath, workdir, dryRun: opts.dryRun });
-    });
+    .option(
+      "--dry-run",
+      "validate config, codex and working directory, then exit without connecting",
+    )
+    .argument("[working-directory]", "directory the agent works in (default: current directory)")
+    .action(
+      async (
+        workingDirectoryArg: string | undefined,
+        opts: { config: string; dryRun?: boolean },
+      ) => {
+        const workingDirectory = resolve(workingDirectoryArg ?? process.cwd());
+        const isDir = await stat(workingDirectory).then(
+          (s) => s.isDirectory(),
+          () => false,
+        );
+        if (!isDir) {
+          program.error(
+            `error: working directory not found or not a directory: ${workingDirectory}`,
+          );
+        }
+        const configPath = resolve(opts.config);
+        const config = await loadConfig(configPath);
+        await startApp(config, { configPath, workingDirectory, dryRun: opts.dryRun });
+      },
+    );
 
   program
     .command("init")
-    .description("generate a config.yaml template")
+    .description("generate a minimal config.yaml")
     .option("-o, --output <path>", "where to write the config", "config.yaml")
     .option("-f, --force", "overwrite an existing file", false)
     .action(async (opts: { output: string; force: boolean }) => {
@@ -41,7 +55,7 @@ export function buildProgram(): Command {
       await Bun.write(out, CONFIG_TEMPLATE);
       console.log(`Wrote ${out}`);
       console.log("Fill in slack.botToken and slack.appToken, then run:");
-      console.log(`  elseagents -c ${out} [workdir]`);
+      console.log(`  elseagent run -c ${out} [working-directory]`);
     });
 
   return program;

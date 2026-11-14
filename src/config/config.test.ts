@@ -13,7 +13,7 @@ import {
 
 let dir: string;
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "elseagents-config-"));
+  dir = await mkdtemp(join(tmpdir(), "elseagent-config-"));
 });
 afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -132,7 +132,7 @@ describe("loadConfig", () => {
 });
 
 describe("config.example.yaml", () => {
-  test("is the template written by `elseagents init`", async () => {
+  test("is the template written by `elseagent init`", async () => {
     const example = await Bun.file(join(import.meta.dir, "../../config.example.yaml")).text();
     expect(CONFIG_TEMPLATE).toBe(example);
   });

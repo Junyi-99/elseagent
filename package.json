@@ -1,15 +1,15 @@
 {
-  "name": "elseagents",
+  "name": "elseagent",
   "version": "0.1.0",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
   "bin": {
-    "elseagents": "src/index.ts"
+    "elseagent": "src/index.ts"
   },
   "scripts": {
     "start": "bun src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile dist/elseagents",
+    "build": "bun build src/index.ts --compile --outfile dist/elseagent",
     "typecheck": "bun check",
     "lint": "biome check --write .",
     "test": "bun test"

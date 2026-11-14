@@ -2,7 +2,7 @@ import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk"
 import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 
-/** Fixed agent-mode settings: act autonomously inside the workdir, never stop to ask. */
+/** Fixed agent-mode settings: act autonomously inside the working directory, never stop to ask. */
 export const AGENT_THREAD_DEFAULTS = {
   sandboxMode: "workspace-write",
   approvalPolicy: "never",
@@ -33,7 +33,7 @@ export function buildCodexOptions(prompt: string | undefined, codexPath: string)
 
 /**
  * Create a Codex client using the codex CLI from `codex.path` (absolute path or command name)
- * or `codex` on PATH. The bundled @openai/codex binary is never used: elseagents ships as a
+ * or `codex` on PATH. The bundled @openai/codex binary is never used: elseagent ships as a
  * single file without node_modules, so source and compiled builds behave the same.
  */
 export function createCodex(

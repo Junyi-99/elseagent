@@ -14,13 +14,21 @@ function run(args: string[], cwd: string) {
 let dir: string;
 beforeAll(async () => {
   // realpath: on macOS the tmpdir is a symlink (/var -> /private/var) and the CLI prints real paths.
-  dir = await realpath(await mkdtemp(join(tmpdir(), "elseagents-cli-")));
+  dir = await realpath(await mkdtemp(join(tmpdir(), "elseagent-cli-")));
 });
 afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
 describe("cli", () => {
+  test("without a command shows help listing run and init", () => {
+    const res = run([], dir);
+    const out = res.stdout + res.stderr;
+    expect(out).toContain("Usage: elseagent");
+    expect(out).toMatch(/run \[options\] \[working-directory\]/);
+    expect(out).toMatch(/init \[options\]/);
+  });
+
   test("init writes config.yaml in cwd", async () => {
     const res = run(["init"], dir);
     expect(res.code).toBe(0);
@@ -41,35 +49,35 @@ describe("cli", () => {
   });
 
   test("run with -c reports validation errors", () => {
-    const res = run(["-c", "config.yaml"], dir);
+    const res = run(["run", "-c", "config.yaml"], dir);
     expect(res.code).toBe(1);
     expect(res.stderr).toContain("slack.botToken is still the placeholder");
   });
 
   test("run with a missing config points to init", () => {
-    const res = run(["-c", "missing.yaml"], dir);
+    const res = run(["run", "-c", "missing.yaml"], dir);
     expect(res.code).toBe(1);
-    expect(res.stderr).toContain("elseagents init");
+    expect(res.stderr).toContain("elseagent init");
   });
 
-  test("run defaults workdir to the current directory", async () => {
+  test("run defaults the working directory to the current directory", async () => {
     await Bun.write(join(dir, "ok.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
-    const res = run(["-c", "ok.yaml", "--dry-run"], dir);
+    const res = run(["run", "-c", "ok.yaml", "--dry-run"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain(`config:  ${join(dir, "ok.yaml")}`);
-    expect(res.stdout).toContain(`workdir: ${dir}`);
+    expect(res.stdout).toMatch(new RegExp(`config: +${join(dir, "ok.yaml")}\\n`));
+    expect(res.stdout).toMatch(new RegExp(`working directory: +${dir}\\n`));
   });
 
-  test("run accepts a workdir argument", async () => {
+  test("run accepts a working directory argument", async () => {
     await mkdir(join(dir, "ws"), { recursive: true });
-    const res = run(["-c", "ok.yaml", "--dry-run", "ws"], dir);
+    const res = run(["run", "-c", "ok.yaml", "--dry-run", "ws"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain(`workdir: ${join(dir, "ws")}`);
+    expect(res.stdout).toMatch(new RegExp(`working directory: +${join(dir, "ws")}\\n`));
   });
 
-  test("run rejects a workdir that is not a directory", () => {
-    const res = run(["-c", "ok.yaml", "--dry-run", "does-not-exist"], dir);
+  test("run rejects a working directory that is missing or not a directory", () => {
+    const res = run(["run", "-c", "ok.yaml", "--dry-run", "does-not-exist"], dir);
     expect(res.code).not.toBe(0);
-    expect(res.stderr).toContain("workdir is not a directory");
+    expect(res.stderr).toContain("working directory not found or not a directory");
   });
 });

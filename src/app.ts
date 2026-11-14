@@ -5,7 +5,7 @@ import { createSlackBot, type MessageHandler } from "./slack/index.ts";
 export interface StartOptions {
   configPath: string;
   /** Absolute path of the directory Codex works in. */
-  workdir: string;
+  workingDirectory: string;
   /** Validate everything and print the summary, but do not connect to Slack. */
   dryRun?: boolean;
 }
@@ -13,25 +13,25 @@ export interface StartOptions {
 /** Start the agent with a validated config. */
 export async function startApp(
   config: Config,
-  { configPath, workdir, dryRun = false }: StartOptions,
+  { configPath, workingDirectory, dryRun = false }: StartOptions,
 ): Promise<void> {
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
   const _codex = createCodex(config.codex, config.agent.prompt);
-  const threadOptions = buildThreadOptions(config.codex, workdir);
+  const threadOptions = buildThreadOptions(config.codex, workingDirectory);
 
-  console.log(`elseagents starting`);
-  console.log(`  config:  ${configPath}`);
-  console.log(`  workdir: ${threadOptions.workingDirectory}`);
-  console.log(`  model:   ${threadOptions.model ?? "(codex default)"}`);
-  console.log(`  effort:  ${threadOptions.modelReasoningEffort ?? "(codex default)"}`);
-  console.log(
-    `  prompt:  ${config.agent.prompt ? `${config.agent.prompt.length} chars` : "(none)"}`,
-  );
-  const { maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays } = config.agent;
-  console.log(
-    `  limits:  ${maxConcurrent} concurrent, queue ${maxQueue}, ` +
-      `turn timeout ${turnTimeoutMinutes}m, session idle ${sessionIdleDays}d`,
-  );
+  const { prompt, maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays } = config.agent;
+  printSummary([
+    ["config", configPath],
+    ["working directory", workingDirectory],
+    ["model", threadOptions.model ?? "(codex default)"],
+    ["reasoning effort", threadOptions.modelReasoningEffort ?? "(codex default)"],
+    ["prompt", prompt ? `${prompt.length} chars` : "(none)"],
+    [
+      "limits",
+      `${maxConcurrent} concurrent, queue ${maxQueue}, ` +
+        `turn timeout ${turnTimeoutMinutes}m, session idle ${sessionIdleDays}d`,
+    ],
+  ]);
   if (dryRun) {
     console.log("dry run: config OK, not connecting to Slack");
     return;
@@ -55,4 +55,12 @@ export async function startApp(
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+}
+
+function printSummary(rows: [label: string, value: string][]): void {
+  const width = Math.max(...rows.map(([label]) => label.length)) + 1;
+  console.log("elseagent starting");
+  for (const [label, value] of rows) {
+    console.log(`  ${`${label}:`.padEnd(width)} ${value}`);
+  }
 }

@@ -1,4 +1,4 @@
-# elseagents
+# elseagent
 
 A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/codex-sdk`](https://www.npmjs.com/package/@openai/codex-sdk) and [`@slack/bolt`](https://slack.dev/bolt-js).
 
@@ -6,13 +6,13 @@ A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/
 
 ```bash
 # Generate a minimal config (default: ./config.yaml)
-elseagents init
-elseagents init -o /etc/elseagents/config.yaml --force
+elseagent init
+elseagent init -o /etc/elseagent/config.yaml --force
 
-# Start the agent: elseagents [-c config] [workdir]
-elseagents                                      # /etc/elseagents/config.yaml, works in the current directory
-elseagents -c ./config.yaml /srv/workspace      # custom config and working directory
-elseagents -c ./config.yaml --dry-run           # validate config, codex and workdir, then exit
+# Start the agent: elseagent run [-c config] [working-directory]
+elseagent run                                  # /etc/elseagent/config.yaml, works in the current directory
+elseagent run -c ./config.yaml /srv/workspace  # custom config and working directory
+elseagent run -c ./config.yaml --dry-run       # validate config, codex and working directory, then exit
 ```
 
 Codex runs in agent mode: `workspace-write` sandbox, no approval prompts, allowed outside git
@@ -20,7 +20,7 @@ repos. Only `model` and `reasoningEffort` can be overridden; everything else use
 
 ## Configuration
 
-`elseagents init` writes [`config.example.yaml`](config.example.yaml): only the required Slack
+`elseagent init` writes [`config.example.yaml`](config.example.yaml): only the required Slack
 tokens, as placeholders to replace. Every other option is optional and documented, with its
 default, in [`docs/config.md`](docs/config.md).
 
@@ -45,7 +45,7 @@ The agent replies to `@mentions` in channels (in a thread) and to DMs.
 ## Build & distribute
 
 ```bash
-bun run build                                   # dist/elseagents for the current platform
+bun run build                                   # dist/elseagent for the current platform
 bun run build -- --target=bun-linux-x64         # cross-compile, e.g. for a Linux server
 ```
 

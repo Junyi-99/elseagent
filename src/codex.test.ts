@@ -21,7 +21,7 @@ describe("createCodex", () => {
   });
 
   test("finds codex on PATH when codex.path is not set", async () => {
-    const bin = await mkdtemp(join(tmpdir(), "elseagents-bin-"));
+    const bin = await mkdtemp(join(tmpdir(), "elseagent-bin-"));
     try {
       await Bun.write(join(bin, "codex"), "#!/bin/sh\n");
       await chmod(join(bin, "codex"), 0o755);
@@ -39,7 +39,7 @@ describe("createCodex", () => {
 });
 
 describe("buildThreadOptions", () => {
-  test("runs in agent mode in the given workdir", () => {
+  test("runs in agent mode in the given working directory", () => {
     expect(buildThreadOptions({}, "/work")).toEqual({
       sandboxMode: "workspace-write",
       approvalPolicy: "never",

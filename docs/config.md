@@ -1,7 +1,7 @@
 # Configuration
 
-elseagents reads a YAML file, `/etc/elseagents/config.yaml` by default (`elseagents -c <path>`
-to use another). `elseagents init` writes a minimal one with only the required settings, the
+elseagent reads a YAML file, `/etc/elseagent/config.yaml` by default (`elseagent run -c <path>`
+to use another). `elseagent init` writes a minimal one with only the required settings, the
 same as [`config.example.yaml`](../config.example.yaml).
 
 Every option below is optional unless marked **required**. Leave out what you don't need; omitted
@@ -26,7 +26,7 @@ slack:
 ```
 
 The working directory is not part of the config: pass it on the command line
-(`elseagents -c <config> [workdir]`, default: the current directory).
+(`elseagent run -c <config> [working-directory]`, default: the current directory).
 
 ## `agent`
 
@@ -46,11 +46,11 @@ Codex always runs in agent mode: `workspace-write` sandbox, no approval prompts,
 git repositories. Everything not listed here uses the Codex defaults, including authentication
 (`codex login` or the `CODEX_API_KEY` environment variable).
 
-| Option                  | Type   | Default           | Description                                                                                                                                                                                                                 |
-| ----------------------- | ------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codex.path`            | string | `codex` on `PATH` | The codex CLI binary: an absolute path, a path relative to the config file, or a command name looked up on `PATH`. The elseagents executable does not include codex; install it separately (e.g. `npm i -g @openai/codex`). |
-| `codex.model`           | string | Codex default     | Force a model for every conversation.                                                                                                                                                                                       |
-| `codex.reasoningEffort` | string | Codex default     | Force the reasoning effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` or `persistent`.                                                                                                                    |
+| Option                  | Type   | Default           | Description                                                                                                                                                                                                                |
+| ----------------------- | ------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codex.path`            | string | `codex` on `PATH` | The codex CLI binary: an absolute path, a path relative to the config file, or a command name looked up on `PATH`. The elseagent executable does not include codex; install it separately (e.g. `npm i -g @openai/codex`). |
+| `codex.model`           | string | Codex default     | Force a model for every conversation.                                                                                                                                                                                      |
+| `codex.reasoningEffort` | string | Codex default     | Force the reasoning effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` or `persistent`.                                                                                                                   |
 
 ## `slack`
 
