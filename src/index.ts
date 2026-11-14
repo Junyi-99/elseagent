@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { buildProgram } from "./cli.ts";
-import { ConfigError } from "./config.ts";
+import { ConfigError } from "./config/index.ts";
 
 try {
   await buildProgram().parseAsync(process.argv);

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import pkg from "../package.json";
 import { startApp } from "./app.ts";
-import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
+import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, loadConfig } from "./config/index.ts";
 
 export function buildProgram(): Command {
   const program = new Command()

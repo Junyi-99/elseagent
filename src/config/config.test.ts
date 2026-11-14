@@ -2,7 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_TEMPLATE, ConfigError, loadConfig } from "./config.ts";
+import {
+  CONFIG_TEMPLATE,
+  ConfigError,
+  configSchema,
+  DEFAULT_CONFIG_PATH,
+  loadConfig,
+} from "./index.ts";
 
 let dir: string;
 beforeAll(async () => {
@@ -69,5 +75,21 @@ describe("loadConfig", () => {
   test("reports malformed YAML", async () => {
     const path = await writeConfig("broken.yaml", "slack: [unclosed\n");
     expect(loadConfig(path)).rejects.toThrow("Failed to parse");
+  });
+});
+
+describe("config.example.yaml", () => {
+  test("is the template written by `elseagents init`", async () => {
+    const example = await Bun.file(join(import.meta.dir, "../../config.example.yaml")).text();
+    expect(CONFIG_TEMPLATE).toBe(example);
+  });
+
+  test("documents the default config path", () => {
+    expect(CONFIG_TEMPLATE).toContain(DEFAULT_CONFIG_PATH);
+  });
+
+  test("covers every top-level section of the schema", () => {
+    const parsed = Bun.YAML.parse(CONFIG_TEMPLATE) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(Object.keys(configSchema.shape).sort());
   });
 });

@@ -1,6 +1,6 @@
 import { Codex } from "@openai/codex-sdk";
-import type { Config } from "./config.ts";
-import { ConfigError } from "./config.ts";
+import type { CodexConfig } from "./config/index.ts";
+import { ConfigError } from "./config/index.ts";
 
 /**
  * Create a Codex client. The codex CLI binary is resolved in order:
@@ -8,7 +8,7 @@ import { ConfigError } from "./config.ts";
  * 2. the @openai/codex package in node_modules (only available when running from source)
  * 3. `codex` on PATH (the compiled single-file build has no node_modules)
  */
-export function createCodex(config: Config["codex"]): Codex {
+export function createCodex(config: CodexConfig): Codex {
   const options = {
     apiKey: config.apiKey,
     baseUrl: config.baseUrl,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Codex } from "@openai/codex-sdk";
 import { createCodex } from "./codex.ts";
-import { ConfigError, configSchema } from "./config.ts";
+import { ConfigError, configSchema } from "./config/index.ts";
 
 const codexConfig = (codex: Record<string, unknown>) =>
   configSchema.parse({ slack: { botToken: "a", appToken: "b" }, codex }).codex;

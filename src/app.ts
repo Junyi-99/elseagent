@@ -1,5 +1,5 @@
 import { createCodex } from "./codex.ts";
-import type { Config } from "./config.ts";
+import type { Config } from "./config/index.ts";
 
 /** Start the agent with a validated config. */
 export async function startApp(config: Config, configPath: string): Promise<void> {

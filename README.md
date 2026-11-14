@@ -16,6 +16,10 @@ elseagents -c ./config.yaml
 
 From source, replace `elseagents` with `bun src/index.ts`.
 
+## Configuration
+
+See [`config.example.yaml`](config.example.yaml) for every option with comments. It is exactly what `elseagents init` writes. The schema lives in [`src/config/schema.ts`](src/config/schema.ts); when adding an option, update both.
+
 ## Build & distribute
 
 ```bash

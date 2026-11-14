@@ -1,0 +1,32 @@
+# elseagents configuration
+# Default location: /etc/elseagents/config.yaml (override with `elseagents -c <path>`)
+# Generate a fresh copy with `elseagents init`.
+
+slack:
+  # Bot User OAuth Token (xoxb-...)
+  botToken: ""
+  # App-level token with connections:write scope, used for Socket Mode (xapp-...)
+  appToken: ""
+  # Only needed when using HTTP mode instead of Socket Mode
+  # signingSecret: ""
+
+codex:
+  # Path to the codex CLI binary. Omit to use the bundled @openai/codex (when run from source)
+  # or `codex` on PATH (required for the compiled single-file build).
+  # path: /usr/local/bin/codex
+  # API key for Codex. Omit to use the credentials from `codex login`.
+  # apiKey: ""
+  # baseUrl: https://api.openai.com/v1
+  # Model name. Omit to use the Codex default.
+  # model: ""
+  # Directory the agent works in. Relative paths resolve against this file. Defaults to the process cwd.
+  # workingDirectory: /var/lib/elseagents/workspace
+  # Allow running outside a git repository
+  skipGitRepoCheck: false
+  # read-only | workspace-write | danger-full-access
+  sandboxMode: workspace-write
+  # never | on-request | on-failure | untrusted
+  approvalPolicy: never
+  # minimal | low | medium | high | xhigh | max
+  # reasoningEffort: medium
+  # networkAccessEnabled: false

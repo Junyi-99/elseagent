@@ -38,3 +38,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # bun build --compile temp files
 *.bun-build
+
+# local config (contains secrets); see config.example.yaml
+config.yaml

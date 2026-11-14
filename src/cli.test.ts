@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_TEMPLATE } from "./config.ts";
+import { CONFIG_TEMPLATE } from "./config/index.ts";
 
 const entry = join(import.meta.dir, "index.ts");
 
