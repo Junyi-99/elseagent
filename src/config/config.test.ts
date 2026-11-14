@@ -31,7 +31,7 @@ describe("loadConfig", () => {
       "appToken: xapp-1",
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
-    expect(config.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1" });
+    expect(config.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", channels: [] });
     expect(config.codex).toEqual({});
   });
 

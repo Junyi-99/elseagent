@@ -54,7 +54,7 @@ describe("cli", () => {
 
   test("run defaults workdir to the current directory", async () => {
     await Bun.write(join(dir, "ok.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
-    const res = run(["-c", "ok.yaml"], dir);
+    const res = run(["-c", "ok.yaml", "--dry-run"], dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`config:  ${join(dir, "ok.yaml")}`);
     expect(res.stdout).toContain(`workdir: ${dir}`);
@@ -62,13 +62,13 @@ describe("cli", () => {
 
   test("run accepts a workdir argument", async () => {
     await mkdir(join(dir, "ws"), { recursive: true });
-    const res = run(["-c", "ok.yaml", "ws"], dir);
+    const res = run(["-c", "ok.yaml", "--dry-run", "ws"], dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`workdir: ${join(dir, "ws")}`);
   });
 
   test("run rejects a workdir that is not a directory", () => {
-    const res = run(["-c", "ok.yaml", "does-not-exist"], dir);
+    const res = run(["-c", "ok.yaml", "--dry-run", "does-not-exist"], dir);
     expect(res.code).not.toBe(0);
     expect(res.stderr).toContain("workdir is not a directory");
   });

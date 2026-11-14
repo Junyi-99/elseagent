@@ -31,7 +31,8 @@ const codexSchema = z.object({
 const slackSchema = z.object({
   botToken: requiredString("slack.botToken"),
   appToken: requiredString("slack.appToken"),
-  signingSecret: z.string().optional(),
+  // Public channels to join at startup, by name (with or without #) or ID.
+  channels: z.array(z.string().trim().min(1)).default([]),
 });
 
 export const configSchema = z.object({

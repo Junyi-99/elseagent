@@ -11,8 +11,9 @@ export function buildProgram(): Command {
     .description("Codex agent for Slack")
     .version(pkg.version ?? "0.0.0")
     .option("-c, --config <path>", "path to config file", DEFAULT_CONFIG_PATH)
+    .option("--dry-run", "validate config, codex and workdir, then exit without connecting")
     .argument("[workdir]", "directory the agent works in (default: current directory)")
-    .action(async (workdirArg: string | undefined, opts: { config: string }) => {
+    .action(async (workdirArg: string | undefined, opts: { config: string; dryRun?: boolean }) => {
       const workdir = resolve(workdirArg ?? process.cwd());
       const isDir = await stat(workdir).then(
         (s) => s.isDirectory(),
@@ -23,7 +24,7 @@ export function buildProgram(): Command {
       }
       const configPath = resolve(opts.config);
       const config = await loadConfig(configPath);
-      await startApp(config, { configPath, workdir });
+      await startApp(config, { configPath, workdir, dryRun: opts.dryRun });
     });
 
   program

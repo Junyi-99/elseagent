@@ -15,9 +15,14 @@ codex:
   # reasoningEffort: medium
 
 slack:
-  # Bot User OAuth Token (xoxb-...)
+  # One Slack app per agent: the bot's name and avatar are set in the Slack app, not here.
+  # Create the app from slack-app-manifest.yaml (see README).
+  # Bot User OAuth Token (xoxb-...), from OAuth & Permissions after installing the app
   botToken: ""
-  # App-level token with connections:write scope, used for Socket Mode (xapp-...)
+  # App-level token with connections:write scope, for Socket Mode (xapp-...),
+  # from Basic Information > App-Level Tokens
   appToken: ""
-  # Only needed when using HTTP mode instead of Socket Mode
-  # signingSecret: ""
+  # Public channels to join at startup, by name or ID. Private channels need an /invite.
+  # channels:
+  #   - general
+  #   - C0123456789

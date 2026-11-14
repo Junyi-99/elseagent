@@ -12,6 +12,7 @@ elseagents init -o /etc/elseagents/config.yaml --force
 # Start the agent: elseagents [-c config] [workdir]
 elseagents                                      # /etc/elseagents/config.yaml, works in the current directory
 elseagents -c ./config.yaml /srv/workspace      # custom config and working directory
+elseagents -c ./config.yaml --dry-run           # validate config, codex and workdir, then exit
 ```
 
 Codex runs in agent mode: `workspace-write` sandbox, no approval prompts, allowed outside git
@@ -20,6 +21,21 @@ repos. Only `model` and `reasoningEffort` can be overridden; everything else use
 ## Configuration
 
 See [`config.example.yaml`](config.example.yaml) for every option with comments. It is exactly what `elseagents init` writes. The schema lives in [`src/config/schema.ts`](src/config/schema.ts); when adding an option, update both.
+
+## Slack setup (one app per agent)
+
+Each agent is its own Slack app, so it has its own name, avatar and tokens. The name lives in
+Slack, not in `config.yaml`.
+
+1. https://api.slack.com/apps > **Create New App** > **From a manifest**, paste
+   [`slack-app-manifest.yaml`](slack-app-manifest.yaml) and change both names to the agent's name.
+2. **Install to Workspace**, then copy the **Bot User OAuth Token** (`xoxb-`) into `slack.botToken`.
+3. **Basic Information > App-Level Tokens**: create a token with `connections:write`, copy it
+   (`xapp-`) into `slack.appToken`.
+4. Optionally list public channels under `slack.channels`; the agent joins them at startup.
+   Private channels need an `/invite @agent`.
+
+The agent replies to `@mentions` in channels (in a thread) and to DMs.
 
 ## Build & distribute
 
