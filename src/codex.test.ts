@@ -48,6 +48,12 @@ describe("buildThreadOptions", () => {
     });
   });
 
+  test("a container deployment can turn off Codex's own sandbox", () => {
+    expect(buildThreadOptions({ sandboxMode: "danger-full-access" }, "/work").sandboxMode).toBe(
+      "danger-full-access",
+    );
+  });
+
   test("passes model and reasoningEffort overrides through", () => {
     const opts = buildThreadOptions({ model: "m", reasoningEffort: "high" }, "/work");
     expect(opts).toMatchObject({
@@ -60,7 +66,7 @@ describe("buildThreadOptions", () => {
 
 describe("buildCodexOptions", () => {
   test("sends the Slack instructions followed by the agent prompt", () => {
-    const opts = buildCodexOptions("You are a reviewer.", "/bin/codex");
+    const opts = buildCodexOptions({ codexPath: "/bin/codex", prompt: "You are a reviewer." });
     expect(opts.codexPathOverride).toBe("/bin/codex");
     const instructions = String(opts.config?.developer_instructions);
     expect(instructions.startsWith(SLACK_INSTRUCTIONS)).toBe(true);
@@ -68,7 +74,7 @@ describe("buildCodexOptions", () => {
   });
 
   test("without a prompt only the Slack instructions are sent", () => {
-    expect(buildCodexOptions(undefined, "/bin/codex").config).toEqual({
+    expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).toEqual({
       developer_instructions: SLACK_INSTRUCTIONS,
     });
   });
@@ -76,10 +82,9 @@ describe("buildCodexOptions", () => {
 
 describe("MCP registration", () => {
   test("registers the elseagent server with the turn id, token via env, auto-approved", () => {
-    const opts = buildCodexOptions(undefined, "/bin/codex", {
-      url: "http://127.0.0.1:1234/mcp",
-      token: "secret",
-      turnId: 42,
+    const opts = buildCodexOptions({
+      codexPath: "/bin/codex",
+      mcp: { url: "http://127.0.0.1:1234/mcp", token: "secret", turnId: 42 },
     });
     expect(opts.config?.mcp_servers).toEqual({
       elseagent: {
@@ -91,6 +96,29 @@ describe("MCP registration", () => {
     });
     expect(opts.env?.ELSEAGENT_MCP_TOKEN).toBe("secret");
     expect(opts.env?.PATH).toBe(process.env.PATH as string);
+    expect(opts.config?.shell_environment_policy).toEqual({ exclude: ["ELSEAGENT_MCP_TOKEN"] });
     expect(JSON.stringify(opts.config)).not.toContain("secret");
+  });
+});
+
+describe("config env", () => {
+  test("is set explicitly in the environment of the commands Codex runs", () => {
+    const opts = buildCodexOptions({
+      codexPath: "/bin/codex",
+      shellEnv: { GH_TOKEN: "ghp_x", CLOUDFLARE_API_TOKEN: "cf" },
+      mcp: { url: "http://127.0.0.1:1/mcp", token: "secret", turnId: 1 },
+    });
+    expect(opts.config?.shell_environment_policy).toEqual({
+      set: { GH_TOKEN: "ghp_x", CLOUDFLARE_API_TOKEN: "cf" },
+      // The MCP token is kept out of the commands' environment.
+      exclude: ["ELSEAGENT_MCP_TOKEN"],
+    });
+    expect(JSON.stringify(opts.config?.shell_environment_policy)).not.toContain("secret");
+  });
+
+  test("leaves Codex's policy alone when there is nothing to set", () => {
+    expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).not.toHaveProperty(
+      "shell_environment_policy",
+    );
   });
 });

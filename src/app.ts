@@ -4,6 +4,7 @@ import { Scheduler } from "./agent/scheduler.ts";
 import { ScheduleRunner } from "./agent/schedules.ts";
 import { createTurnRunner, REACTIONS } from "./agent/turn.ts";
 import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
+import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
 import type { Config } from "./config/index.ts";
 import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
 import { conversationKey, createSlackBot, type MessageHandler } from "./slack/index.ts";
@@ -25,6 +26,8 @@ export async function startApp(
   config: Config,
   { configPath, workingDirectory, dryRun = false }: StartOptions,
 ): Promise<void> {
+  // The config's `env:` applies to this process and everything it starts (Codex, its tools).
+  Object.assign(process.env, config.env);
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
   const codexPath = resolveCodexPath(config.codex);
   const threadOptions = buildThreadOptions(config.codex, workingDirectory);
@@ -46,6 +49,7 @@ export async function startApp(
     ["reasoning effort", threadOptions.modelReasoningEffort ?? "(codex default)"],
     ["prompt", prompt ? `${prompt.length} chars` : "(none)"],
     ["time zone", timezone],
+    ["env", Object.keys(config.env).join(", ") || "(none)"],
     [
       "limits",
       `${maxConcurrent} concurrent, queue ${maxQueue}, ` +
@@ -53,9 +57,16 @@ export async function startApp(
     ],
   ]);
   if (dryRun) {
+    const auth = await codexAuthStatus(codexPath);
+    console.log(
+      `codex auth: ${auth}${auth === "not-logged-in" ? " (run would start device-code login)" : ""}`,
+    );
     console.log("dry run: config OK, not connecting to Slack");
     return;
   }
+
+  // Without CODEX_API_KEY or a saved login, log a device code and wait for someone to sign in.
+  await ensureCodexLogin({ codexPath });
 
   const bot = await createSlackBot(config.slack);
   const { teamId, userId } = bot.identity;
@@ -73,11 +84,12 @@ export async function startApp(
     queue,
     createTurnRunner({
       codexFor: (message) =>
-        createCodex(
+        createCodex({
           codexPath,
           prompt,
-          mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
-        ),
+          mcp: mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
+          shellEnv: config.env,
+        }),
       sessions,
       threadOptions,
       replyTo: bot.replyTo,

@@ -102,6 +102,22 @@ describe("loadConfig", () => {
     expect((await loadConfig(rel)).agent.stateDir).toBe(join(dir, "state"));
   });
 
+  test("env: variables as strings, empty when missing, names validated", async () => {
+    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    expect((await loadConfig(await writeConfig("env-none.yaml", base))).env).toEqual({});
+    const path = await writeConfig(
+      "env.yaml",
+      `${base}env:\n  GH_TOKEN: ghp_x\n  PORT: 8080\n  DEBUG: true\n`,
+    );
+    expect((await loadConfig(path)).env).toEqual({
+      GH_TOKEN: "ghp_x",
+      PORT: "8080",
+      DEBUG: "true",
+    });
+    const bad = await writeConfig("env-bad.yaml", `${base}env:\n  "NOT-OK": x\n`);
+    expect(loadConfig(bad)).rejects.toThrow("env names must be valid variable names");
+  });
+
   test("codex section is optional", async () => {
     const path = await writeConfig("min.yaml", "slack:\n  botToken: a\n  appToken: b\n");
     expect((await loadConfig(path)).codex).toEqual({});

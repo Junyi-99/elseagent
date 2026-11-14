@@ -71,6 +71,9 @@ const codexSchema = z.object({
   path: z.string().trim().min(1).optional(),
   model: z.string().trim().min(1).optional(),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+  // workspace-write (default): commands may only write in the working directory, no network.
+  // danger-full-access: no Codex sandbox; for containers, where the container is the sandbox.
+  sandboxMode: z.enum(["workspace-write", "danger-full-access"]).optional(),
 });
 
 const slackSchema = z.object(
@@ -90,11 +93,28 @@ export const configSections = {
   slack: slackSchema,
 };
 
+/**
+ * Environment variables for the agent: credentials and settings for the tools Codex uses
+ * (CODEX_API_KEY, GH_TOKEN, CLOUDFLARE_API_TOKEN, KUBECONFIG…), so one config file is enough.
+ */
+const envSchema = z.record(
+  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  // YAML may read values like 8080 or true as numbers/booleans; variables are strings.
+  z.union([z.string(), z.number(), z.boolean()]).transform(String),
+  {
+    error: (issue) =>
+      issue.code === "invalid_key"
+        ? "env names must be valid variable names (letters, digits and _)"
+        : undefined,
+  },
+);
+
 export const configSchema = z.object({
   // Optional sections may be missing or empty (`agent:` with nothing under it parses as null).
   agent: z.preprocess((v) => v ?? {}, agentSchema),
   codex: z.preprocess((v) => v ?? {}, codexSchema),
   slack: slackSchema,
+  env: z.preprocess((v) => v ?? {}, envSchema),
 });
 
 export type Config = z.infer<typeof configSchema>;
