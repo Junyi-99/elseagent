@@ -5,13 +5,29 @@ import { parseReply, REPLY_SCHEMA } from "./reply.ts";
 import { stopReason, type TurnRunner } from "./scheduler.ts";
 import { describeItem, StatusTicker, THINKING } from "./status.ts";
 
-/** Reactions on the user's message that show where it is. */
+/**
+ * Reactions on the user's message that show where it is. A successful turn just removes
+ * "working": the reply itself says it's done.
+ */
 export const REACTIONS = {
   queued: "hourglass_flowing_sand",
   working: "eyes",
-  done: "white_check_mark",
   failed: "x",
 } as const;
+
+/**
+ * The `/new` slash command (DMs only): start the DM over with a new Codex session. It is
+ * queued without a Slack message (empty ts), unlike a user typing "/new" in a thread, which is
+ * just text for Codex.
+ */
+export function isNewSessionCommand(
+  message: Pick<QueuedMessage, "text" | "ts" | "scheduleId">,
+): boolean {
+  return message.scheduleId === null && message.ts === "" && message.text === "/new";
+}
+
+export const NEW_SESSION_REPLY =
+  "Started a new session. I won't remember what we discussed before this point.";
 
 /**
  * Run a turn streamed, reporting each item as it starts, and return the final response.
@@ -39,7 +55,7 @@ export interface TurnDeps {
   codexFor(message: QueuedMessage): Pick<Codex, "startThread" | "resumeThread">;
   /** Throttling of the thread's loading status (tests shorten it). */
   statusOptions?: ConstructorParameters<typeof StatusTicker>[1];
-  sessions: Pick<SessionStore, "get" | "touch">;
+  sessions: Pick<SessionStore, "get" | "touch" | "reset">;
   threadOptions: ThreadOptions;
   replyTo(target: ReplyTarget): Reply;
   /** Thread messages after `afterTs` (null: from the start) and before the message itself. */
@@ -88,14 +104,23 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
   return async (message, signal) => {
     const scheduled = message.scheduleId !== null;
     const reply = deps.replyTo(message);
-    const react = (name: string) => (scheduled ? Promise.resolve() : reply.react(name));
-    const unreact = (name: string) => (scheduled ? Promise.resolve() : reply.unreact(name));
+    // Scheduled runs and slash commands have no user message to react to.
+    const react = (name: string) => (message.ts ? reply.react(name) : Promise.resolve());
+    const unreact = (name: string) => (message.ts ? reply.unreact(name) : Promise.resolve());
     await unreact(REACTIONS.queued);
+
+    // Handled in the queue like any message, so it waits for a running turn in the same
+    // conversation instead of racing it.
+    if (isNewSessionCommand(message)) {
+      sessions.reset(message.conversationKey, null);
+      await reply.post(NEW_SESSION_REPLY);
+      return;
+    }
     await react(REACTIONS.working);
 
     const codex = deps.codexFor(message);
     const session = scheduled ? null : sessions.get(message.conversationKey, sessionIdleMs);
-    const thread = session
+    const thread = session?.threadId
       ? codex.resumeThread(session.threadId, threadOptions)
       : codex.startThread(threadOptions);
     const timeout = AbortSignal.timeout(turnTimeoutMs);
@@ -115,7 +140,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     const status = new StatusTicker((text) => reply.setStatus(text), deps.statusOptions);
     if (!scheduled) status.set(THINKING);
 
-    let outcome: keyof typeof REACTIONS = "failed";
+    let failed = true;
     try {
       // A new session gets the whole thread so far; a continuing one only what it hasn't seen.
       const context = scheduled
@@ -138,7 +163,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       await status.stop();
       const { message: text, choices } = parseReply(finalResponse);
       await postAndTrack(text.trim() || "_(no response)_", choices);
-      outcome = "done";
+      failed = false;
     } catch (err) {
       const stopped = stopReason(signal);
       if (stopped?.kind === "cancelled") {
@@ -160,7 +185,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       const where = conversation as { key: string; lastSeenTs: string } | null;
       if (thread.id && where) sessions.touch(where.key, thread.id, where.lastSeenTs);
       await unreact(REACTIONS.working);
-      await react(REACTIONS[outcome]);
+      if (failed) await react(REACTIONS.failed);
     }
   };
 }

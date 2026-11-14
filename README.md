@@ -54,12 +54,14 @@ The agent replies to `@mentions` in channels (in a thread) and to DMs.
   pick on the message and sends it to the agent as the next message.
 - At most `agent.maxConcurrent` Codex turns run at once. Further messages wait in a queue
   (first come, first served, one turn at a time per conversation), shown with ⏳.
-  👀 means working, ✅ done, ❌ failed or timed out.
+  👀 means working (removed when the reply is posted), ❌ failed or timed out.
 - While Codex works, the thread shows what it is doing at the bottom ("is running `bun test`…",
   "is editing app.ts…"), using Slack's loading status. It disappears when the reply is posted.
 - The session mapping and the queue live in SQLite under `agent.stateDir`, so queued messages
   survive a restart. Messages that were mid-turn during a restart are reported back, not rerun.
 - Conversations idle for `agent.sessionIdleDays` are forgotten; their next message starts fresh.
+- In a DM with the agent, the `/new` slash command starts the DM over with a new session. (In
+  threads, start a new thread instead.)
 
 ## Agent tools and scheduled tasks
 

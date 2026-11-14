@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { conversationKey, fromDirectMessage, fromMention, stripMention } from "./message.ts";
+import {
+  conversationKey,
+  fromDirectMessage,
+  fromMention,
+  slashCommandMessage,
+  stripMention,
+} from "./message.ts";
 
 const BOT = "UBOT";
 
@@ -88,6 +94,19 @@ describe("fromDirectMessage", () => {
     expect(fromDirectMessage(dm({ bot_id: "B1" }), BOT)).toBeNull();
     expect(fromDirectMessage(dm({ user: BOT }), BOT)).toBeNull();
   });
+});
+
+test("a DM slash command becomes a message with no ts, at the DM's top level", () => {
+  const m = slashCommandMessage("D1", "U1", "/new");
+  expect(m).toEqual({
+    channel: "D1",
+    ts: "",
+    threadTs: undefined,
+    user: "U1",
+    text: "/new",
+    isDirect: true,
+  });
+  expect(conversationKey(m)).toBe("D1");
 });
 
 describe("conversationKey", () => {

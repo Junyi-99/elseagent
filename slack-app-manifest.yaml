@@ -18,6 +18,10 @@ features:
   bot_user:
     display_name: elseagent
     always_online: true
+  slash_commands:
+    - command: /new
+      description: Start our DM over with a new session
+      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -32,6 +36,7 @@ oauth_config:
       - channels:read # look up public channels by name
       - groups:read # check membership of private channels used by scheduled tasks
       - users:read # resolve user names
+      - commands # the /new slash command
 settings:
   event_subscriptions:
     bot_events:

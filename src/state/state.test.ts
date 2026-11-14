@@ -75,6 +75,17 @@ describe("SessionStore", () => {
     expect(store.get("C1:1.0", DAY)?.lastSeenTs).toBe("9.0");
   });
 
+  test("reset (/new) clears the thread but keeps the conversation out of the session list", () => {
+    const store = new SessionStore(openStateDb(":memory:"));
+    store.touch("D1", "thread-a", "1.0");
+    store.reset("D1", null);
+    expect(store.get("D1", DAY)).toEqual({ threadId: null, lastSeenTs: null });
+    expect(store.list()).toEqual([]);
+    expect(store.count()).toBe(0);
+    store.touch("D1", "thread-b", "2.0");
+    expect(store.get("D1", DAY)?.threadId).toBe("thread-b");
+  });
+
   test("re-points a conversation to a new thread", () => {
     const store = new SessionStore(openStateDb(":memory:"));
     store.touch("D1", "old");

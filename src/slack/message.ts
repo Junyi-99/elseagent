@@ -61,3 +61,8 @@ export function fromDirectMessage(event: MessageEvent, botUserId: string): Incom
 export function conversationKey(message: Pick<IncomingMessage, "channel" | "threadTs">): string {
   return message.threadTs ? `${message.channel}:${message.threadTs}` : message.channel;
 }
+
+/** A slash command in a DM, as a message without a Slack message behind it (empty ts). */
+export function slashCommandMessage(channel: string, user: string, text: string): IncomingMessage {
+  return { channel, ts: "", threadTs: undefined, user, text, isDirect: true };
+}

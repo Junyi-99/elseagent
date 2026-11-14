@@ -3,7 +3,14 @@ import type { ThreadItem } from "@openai/codex-sdk";
 import type { Reply, ThreadContext } from "../slack/index.ts";
 import { openStateDb, type QueuedMessage, SessionStore } from "../state/index.ts";
 import { REPLY_SCHEMA } from "./reply.ts";
-import { createTurnRunner, formatInput, REACTIONS, type TurnDeps } from "./turn.ts";
+import {
+  createTurnRunner,
+  formatInput,
+  isNewSessionCommand,
+  NEW_SESSION_REPLY,
+  REACTIONS,
+  type TurnDeps,
+} from "./turn.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -115,11 +122,11 @@ describe("turn runner", () => {
       { kind: "start", id: "thread-1", input: "<@U1>: fix the build", schema: REPLY_SCHEMA },
     ]);
     expect(posts).toEqual([{ text: "Fixed it.", choices: [] }]);
+    // Success just removes "working": no extra reaction, the reply says it's done.
     expect(reactions).toEqual([
       `-${REACTIONS.queued}`,
       `+${REACTIONS.working}`,
       `-${REACTIONS.working}`,
-      `+${REACTIONS.done}`,
     ]);
     expect(sessions.get("C1:1.0", DAY)).toEqual({ threadId: "thread-1", lastSeenTs: "2.0" });
   });
@@ -188,6 +195,47 @@ describe("turn runner", () => {
     await run(message(), never);
     expect(posts).toEqual([{ text: "Codex failed: model overloaded", choices: [] }]);
     expect(reactions.at(-1)).toBe(`+${REACTIONS.failed}`);
+  });
+});
+
+describe("/new", () => {
+  const command = (): QueuedMessage => ({
+    id: 9,
+    conversationKey: "D1",
+    channel: "D1",
+    ts: "",
+    threadTs: null,
+    user: "U1",
+    text: "/new",
+    scheduleId: null,
+  });
+  const dm = (text: string, ts: string): QueuedMessage => ({
+    ...command(),
+    ts,
+    text,
+  });
+
+  test("the DM slash command starts the conversation over without running Codex", async () => {
+    const { run, calls, posts, sessions } = setup(async () => json("ok"));
+    await run(dm("remember 42", "1.0"), never);
+    expect(sessions.get("D1", DAY)?.threadId).toBe("thread-1");
+
+    await run(command(), never);
+    expect(posts.at(-1)?.text).toBe(NEW_SESSION_REPLY);
+    expect(calls).toHaveLength(1); // no Codex turn for the command
+    expect(sessions.get("D1", DAY)?.threadId).toBeNull();
+
+    await run(dm("what did I say?", "3.0"), never);
+    expect(calls.map((c) => [c.kind, c.id])).toEqual([
+      ["start", "thread-1"],
+      ["start", "thread-2"], // a new Codex session
+    ]);
+  });
+
+  test("typing /new as a message is just text for Codex", () => {
+    expect(isNewSessionCommand(command())).toBe(true);
+    expect(isNewSessionCommand({ ...command(), ts: "5.0" })).toBe(false);
+    expect(isNewSessionCommand({ ...command(), scheduleId: 1 })).toBe(false);
   });
 });
 

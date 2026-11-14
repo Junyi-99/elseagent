@@ -4,7 +4,12 @@ import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
 import { fetchThreadContext, type ThreadContext } from "./context.ts";
 import { splitMarkdown } from "./markdown.ts";
-import { fromDirectMessage, fromMention, type IncomingMessage } from "./message.ts";
+import {
+  fromDirectMessage,
+  fromMention,
+  type IncomingMessage,
+  slashCommandMessage,
+} from "./message.ts";
 
 export type { ContextMessage, ThreadContext } from "./context.ts";
 export { conversationKey, type IncomingMessage } from "./message.ts";
@@ -164,6 +169,19 @@ export async function createSlackBot(
       app.message(async ({ message: event }) => {
         const message = fromDirectMessage(event, identity.userId);
         if (message) await dispatch(message);
+      });
+      // `/new` in a DM starts it over; it goes through the queue like a message (no ts: there
+      // is no Slack message behind a slash command). Elsewhere, explain where it works.
+      app.command("/new", async ({ ack, command }) => {
+        if (!command.channel_id.startsWith("D")) {
+          await ack({
+            response_type: "ephemeral",
+            text: "`/new` works in a direct message with me: it starts our DM over.",
+          });
+          return;
+        }
+        await ack();
+        await dispatch(slashCommandMessage(command.channel_id, command.user_id, "/new"));
       });
       // A choice button: record the pick on the message, then treat it as the user's reply.
       app.action<BlockButtonAction>({ action_id: CHOICE_ACTION }, async ({ ack, body, action }) => {

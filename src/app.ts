@@ -160,7 +160,7 @@ export async function startApp(
       user: message.user,
       text: message.text,
     });
-    if (result.status === "queued") {
+    if (result.status === "queued" && message.ts) {
       await reply.react(REACTIONS.queued);
     } else if (result.status === "rejected") {
       await reply.post("I'm too busy right now. Please try again in a while.");

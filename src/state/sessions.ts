@@ -1,9 +1,10 @@
-import { count, desc, eq, lt } from "drizzle-orm";
+import { count, desc, eq, lt, ne } from "drizzle-orm";
 import type { StateDb } from "./db.ts";
 import { sessions } from "./schema.ts";
 
 export interface SessionInfo {
-  threadId: string;
+  /** Null right after `/new`: the next turn starts a new Codex thread. */
+  threadId: string | null;
   /** Slack ts of the last message Codex has seen in this conversation. */
   lastSeenTs: string | null;
 }
@@ -23,7 +24,7 @@ export class SessionStore {
       .where(eq(sessions.conversationKey, conversationKey))
       .get();
     if (!row || row.lastActiveAt < this.now() - maxIdleMs) return null;
-    return { threadId: row.threadId, lastSeenTs: row.lastSeenTs };
+    return { threadId: row.threadId || null, lastSeenTs: row.lastSeenTs };
   }
 
   /** Record a turn: the Codex thread the conversation uses and the last Slack message it saw. */
@@ -39,6 +40,15 @@ export class SessionStore {
       .run();
   }
 
+  /**
+   * Start a conversation over (`/new`): its next turn gets a new Codex thread. `fromTs` keeps
+   * earlier thread messages out of the new session's context.
+   */
+  reset(conversationKey: string, fromTs: string | null): void {
+    // An empty thread id marks "no Codex thread yet" (the column is NOT NULL).
+    this.touch(conversationKey, "", fromTs);
+  }
+
   /** Most recently active sessions first. */
   list(limit = 20): { conversationKey: string; threadId: string; lastActiveAt: number }[] {
     return this.db
@@ -48,13 +58,16 @@ export class SessionStore {
         lastActiveAt: sessions.lastActiveAt,
       })
       .from(sessions)
+      .where(ne(sessions.threadId, "")) // just reset with /new: no Codex session yet
       .orderBy(desc(sessions.lastActiveAt))
       .limit(limit)
       .all();
   }
 
   count(): number {
-    return this.db.select({ n: count() }).from(sessions).get()?.n ?? 0;
+    return (
+      this.db.select({ n: count() }).from(sessions).where(ne(sessions.threadId, "")).get()?.n ?? 0
+    );
   }
 
   /** Drop one conversation's session; its next message starts a new Codex session. */
