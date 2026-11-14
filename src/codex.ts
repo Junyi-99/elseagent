@@ -1,5 +1,5 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
-import type { AgentConfig, CodexConfig } from "./config/index.ts";
+import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 
 /** Fixed agent-mode settings: act autonomously inside the workdir, never stop to ask. */
@@ -24,10 +24,10 @@ export function buildThreadOptions(config: CodexConfig, workingDirectory: string
  * applies to every thread on top of Codex's own system prompt; without a prompt this is a plain
  * Codex session.
  */
-export function buildCodexOptions(agent: AgentConfig, codexPath: string): CodexOptions {
+export function buildCodexOptions(prompt: string | undefined, codexPath: string): CodexOptions {
   return {
     codexPathOverride: codexPath,
-    ...(agent.prompt && { config: { developer_instructions: agent.prompt } }),
+    ...(prompt && { config: { developer_instructions: prompt } }),
   };
 }
 
@@ -38,7 +38,7 @@ export function buildCodexOptions(agent: AgentConfig, codexPath: string): CodexO
  */
 export function createCodex(
   config: CodexConfig,
-  agent: AgentConfig = {},
+  prompt?: string,
   searchPath = process.env.PATH,
 ): Codex {
   const command = config.path ?? "codex";
@@ -51,5 +51,5 @@ export function createCodex(
             "or set codex.path in the config.",
     );
   }
-  return new Codex(buildCodexOptions(agent, resolved));
+  return new Codex(buildCodexOptions(prompt, resolved));
 }

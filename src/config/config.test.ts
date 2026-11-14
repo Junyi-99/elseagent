@@ -54,6 +54,33 @@ describe("loadConfig", () => {
     expect((await loadConfig(empty)).agent.prompt).toBeUndefined();
   });
 
+  test("agent limits default and can be overridden", async () => {
+    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const defaults = await loadConfig(await writeConfig("limits-default.yaml", base));
+    expect(defaults.agent).toEqual({
+      maxConcurrent: 16,
+      maxQueue: 100,
+      turnTimeoutMinutes: 30,
+      sessionIdleDays: 7,
+    });
+    const custom = await writeConfig(
+      "limits.yaml",
+      `agent:\n  maxConcurrent: 4\n  sessionIdleDays: 1\n${base}`,
+    );
+    expect((await loadConfig(custom)).agent).toMatchObject({
+      maxConcurrent: 4,
+      sessionIdleDays: 1,
+    });
+  });
+
+  test("rejects non-positive or fractional limits", async () => {
+    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const zero = await writeConfig("zero.yaml", `agent:\n  maxConcurrent: 0\n${base}`);
+    expect(loadConfig(zero)).rejects.toThrow("agent.maxConcurrent must be greater than 0");
+    const frac = await writeConfig("frac.yaml", `agent:\n  sessionIdleDays: 1.5\n${base}`);
+    expect(loadConfig(frac)).rejects.toThrow("agent.sessionIdleDays must be a whole number");
+  });
+
   test("codex section is optional", async () => {
     const path = await writeConfig("min.yaml", "slack:\n  botToken: a\n  appToken: b\n");
     expect((await loadConfig(path)).codex).toEqual({});

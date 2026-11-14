@@ -16,7 +16,7 @@ export async function startApp(
   { configPath, workdir, dryRun = false }: StartOptions,
 ): Promise<void> {
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
-  const _codex = createCodex(config.codex, config.agent);
+  const _codex = createCodex(config.codex, config.agent.prompt);
   const threadOptions = buildThreadOptions(config.codex, workdir);
 
   console.log(`elseagents starting`);
@@ -26,6 +26,11 @@ export async function startApp(
   console.log(`  effort:  ${threadOptions.modelReasoningEffort ?? "(codex default)"}`);
   console.log(
     `  prompt:  ${config.agent.prompt ? `${config.agent.prompt.length} chars` : "(none)"}`,
+  );
+  const { maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays } = config.agent;
+  console.log(
+    `  limits:  ${maxConcurrent} concurrent, queue ${maxQueue}, ` +
+      `turn timeout ${turnTimeoutMinutes}m, session idle ${sessionIdleDays}d`,
   );
   if (dryRun) {
     console.log("dry run: config OK, not connecting to Slack");

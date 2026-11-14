@@ -12,6 +12,16 @@ agent:
   #     You are the on-call assistant for the payments team.
   #     Keep replies short; link to files you changed.
   prompt: ""
+  # Codex turns running at the same time (each is one `codex exec` process; idle sessions don't
+  # count). Further messages wait in a queue, first come first served.
+  # maxConcurrent: 16
+  # Messages that may wait in the queue; beyond this the agent replies that it is busy.
+  # maxQueue: 100
+  # A turn running longer than this is aborted, freeing its slot.
+  # turnTimeoutMinutes: 30
+  # A conversation (Slack thread or DM) idle this long is forgotten; its next message starts a
+  # new Codex session.
+  # sessionIdleDays: 7
 
 codex:
   # Path to the codex CLI binary. Omit to use `codex` on PATH.

@@ -25,14 +25,16 @@ describe("createCodex", () => {
     try {
       await Bun.write(join(bin, "codex"), "#!/bin/sh\n");
       await chmod(join(bin, "codex"), 0o755);
-      expect(createCodex({}, {}, bin)).toBeInstanceOf(Codex);
+      expect(createCodex({}, undefined, bin)).toBeInstanceOf(Codex);
     } finally {
       await rm(bin, { recursive: true, force: true });
     }
   });
 
   test("errors when codex is not on PATH", () => {
-    expect(() => createCodex({}, {}, "/nonexistent")).toThrow("Could not find `codex` on PATH");
+    expect(() => createCodex({}, undefined, "/nonexistent")).toThrow(
+      "Could not find `codex` on PATH",
+    );
   });
 });
 
@@ -60,13 +62,13 @@ describe("buildThreadOptions", () => {
 
 describe("buildCodexOptions", () => {
   test("passes the agent prompt as developer_instructions", () => {
-    expect(buildCodexOptions({ prompt: "You are a reviewer." }, "/bin/codex")).toEqual({
+    expect(buildCodexOptions("You are a reviewer.", "/bin/codex")).toEqual({
       codexPathOverride: "/bin/codex",
       config: { developer_instructions: "You are a reviewer." },
     });
   });
 
   test("without a prompt it is a plain Codex session", () => {
-    expect(buildCodexOptions({}, "/bin/codex")).toEqual({ codexPathOverride: "/bin/codex" });
+    expect(buildCodexOptions(undefined, "/bin/codex")).toEqual({ codexPathOverride: "/bin/codex" });
   });
 });

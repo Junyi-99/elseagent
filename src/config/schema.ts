@@ -20,12 +20,23 @@ const requiredString = (name: string) =>
     .trim()
     .min(1, `${name} is required`);
 
+const positiveInt = (name: string) =>
+  z.int(`${name} must be a whole number`).positive(`${name} must be greater than 0`);
+
 const agentSchema = z.object({
   // The agent's role, passed to Codex as developer instructions. Empty = plain Codex session.
   prompt: z
     .string()
     .transform((s) => s.trim() || undefined)
     .optional(),
+  // Codex turns (one `codex exec` each) running at the same time. Idle sessions don't count.
+  maxConcurrent: positiveInt("agent.maxConcurrent").default(16),
+  // Messages waiting for a free slot; beyond this new messages are turned away.
+  maxQueue: positiveInt("agent.maxQueue").default(100),
+  // A turn running longer than this is aborted and its slot freed.
+  turnTimeoutMinutes: positiveInt("agent.turnTimeoutMinutes").default(30),
+  // A conversation with no activity for this long is forgotten; its next message starts fresh.
+  sessionIdleDays: positiveInt("agent.sessionIdleDays").default(7),
 });
 
 // Only what the user may override. Agent-mode behaviour (sandbox, approvals, git check)
