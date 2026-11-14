@@ -3,7 +3,12 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Codex } from "@openai/codex-sdk";
-import { AGENT_THREAD_DEFAULTS, buildThreadOptions, createCodex } from "./codex.ts";
+import {
+  AGENT_THREAD_DEFAULTS,
+  buildCodexOptions,
+  buildThreadOptions,
+  createCodex,
+} from "./codex.ts";
 import { ConfigError } from "./config/index.ts";
 
 describe("createCodex", () => {
@@ -20,14 +25,14 @@ describe("createCodex", () => {
     try {
       await Bun.write(join(bin, "codex"), "#!/bin/sh\n");
       await chmod(join(bin, "codex"), 0o755);
-      expect(createCodex({}, bin)).toBeInstanceOf(Codex);
+      expect(createCodex({}, {}, bin)).toBeInstanceOf(Codex);
     } finally {
       await rm(bin, { recursive: true, force: true });
     }
   });
 
   test("errors when codex is not on PATH", () => {
-    expect(() => createCodex({}, "/nonexistent")).toThrow("Could not find `codex` on PATH");
+    expect(() => createCodex({}, {}, "/nonexistent")).toThrow("Could not find `codex` on PATH");
   });
 });
 
@@ -50,5 +55,18 @@ describe("buildThreadOptions", () => {
       model: "m",
       modelReasoningEffort: "high",
     });
+  });
+});
+
+describe("buildCodexOptions", () => {
+  test("passes the agent prompt as developer_instructions", () => {
+    expect(buildCodexOptions({ prompt: "You are a reviewer." }, "/bin/codex")).toEqual({
+      codexPathOverride: "/bin/codex",
+      config: { developer_instructions: "You are a reviewer." },
+    });
+  });
+
+  test("without a prompt it is a plain Codex session", () => {
+    expect(buildCodexOptions({}, "/bin/codex")).toEqual({ codexPathOverride: "/bin/codex" });
   });
 });

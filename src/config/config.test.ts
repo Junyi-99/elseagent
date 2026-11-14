@@ -43,6 +43,17 @@ describe("loadConfig", () => {
     expect(err.message).toContain("slack.appToken is required");
   });
 
+  test("agent.prompt: multi-line is kept, empty means no prompt", async () => {
+    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const multi = await writeConfig(
+      "prompt.yaml",
+      `agent:\n  prompt: |\n    Line one.\n    Line two.\n${base}`,
+    );
+    expect((await loadConfig(multi)).agent.prompt).toBe("Line one.\nLine two.");
+    const empty = await writeConfig("empty-prompt.yaml", `agent:\n  prompt: "  "\n${base}`);
+    expect((await loadConfig(empty)).agent.prompt).toBeUndefined();
+  });
+
   test("codex section is optional", async () => {
     const path = await writeConfig("min.yaml", "slack:\n  botToken: a\n  appToken: b\n");
     expect((await loadConfig(path)).codex).toEqual({});

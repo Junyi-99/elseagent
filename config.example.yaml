@@ -5,6 +5,14 @@
 # Codex runs in agent mode: workspace-write sandbox, no approval prompts, works outside git repos.
 # Everything not listed here uses the Codex defaults (incl. auth via `codex login` or CODEX_API_KEY).
 
+agent:
+  # The agent's role, given to Codex as developer instructions in every conversation.
+  # Leave empty for a plain Codex session. Use `|` for multi-line text, e.g.
+  #   prompt: |
+  #     You are the on-call assistant for the payments team.
+  #     Keep replies short; link to files you changed.
+  prompt: ""
+
 codex:
   # Path to the codex CLI binary. Omit to use `codex` on PATH.
   # path: /usr/local/bin/codex

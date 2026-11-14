@@ -1,5 +1,5 @@
-import { Codex, type ThreadOptions } from "@openai/codex-sdk";
-import type { CodexConfig } from "./config/index.ts";
+import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
+import type { AgentConfig, CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 
 /** Fixed agent-mode settings: act autonomously inside the workdir, never stop to ask. */
@@ -20,11 +20,27 @@ export function buildThreadOptions(config: CodexConfig, workingDirectory: string
 }
 
 /**
+ * Client-level Codex options. The agent prompt becomes Codex's `developer_instructions`, so it
+ * applies to every thread on top of Codex's own system prompt; without a prompt this is a plain
+ * Codex session.
+ */
+export function buildCodexOptions(agent: AgentConfig, codexPath: string): CodexOptions {
+  return {
+    codexPathOverride: codexPath,
+    ...(agent.prompt && { config: { developer_instructions: agent.prompt } }),
+  };
+}
+
+/**
  * Create a Codex client using the codex CLI from `codex.path` (absolute path or command name)
  * or `codex` on PATH. The bundled @openai/codex binary is never used: elseagents ships as a
  * single file without node_modules, so source and compiled builds behave the same.
  */
-export function createCodex(config: CodexConfig, searchPath = process.env.PATH): Codex {
+export function createCodex(
+  config: CodexConfig,
+  agent: AgentConfig = {},
+  searchPath = process.env.PATH,
+): Codex {
   const command = config.path ?? "codex";
   const resolved = Bun.which(command, { PATH: searchPath });
   if (!resolved) {
@@ -35,5 +51,5 @@ export function createCodex(config: CodexConfig, searchPath = process.env.PATH):
             "or set codex.path in the config.",
     );
   }
-  return new Codex({ codexPathOverride: resolved });
+  return new Codex(buildCodexOptions(agent, resolved));
 }

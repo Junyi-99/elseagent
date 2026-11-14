@@ -1,5 +1,6 @@
 export { ConfigError, loadConfig } from "./load.ts";
 export {
+  type AgentConfig,
   type CodexConfig,
   type Config,
   configSchema,

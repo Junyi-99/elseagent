@@ -20,6 +20,14 @@ const requiredString = (name: string) =>
     .trim()
     .min(1, `${name} is required`);
 
+const agentSchema = z.object({
+  // The agent's role, passed to Codex as developer instructions. Empty = plain Codex session.
+  prompt: z
+    .string()
+    .transform((s) => s.trim() || undefined)
+    .optional(),
+});
+
 // Only what the user may override. Agent-mode behaviour (sandbox, approvals, git check)
 // is fixed in src/codex.ts; everything else uses the Codex defaults.
 const codexSchema = z.object({
@@ -36,11 +44,14 @@ const slackSchema = z.object({
 });
 
 export const configSchema = z.object({
-  // `codex:` with every option commented out parses as null; treat it (or a missing section) as {}.
+  // Sections whose options are all commented out parse as null; treat them (or a missing
+  // section) as {}.
+  agent: z.preprocess((v) => v ?? {}, agentSchema),
   codex: z.preprocess((v) => v ?? {}, codexSchema),
   slack: slackSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;
+export type AgentConfig = Config["agent"];
 export type SlackConfig = Config["slack"];
 export type CodexConfig = Config["codex"];
