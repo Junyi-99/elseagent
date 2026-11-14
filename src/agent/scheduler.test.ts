@@ -91,6 +91,34 @@ describe("Scheduler", () => {
     expect(queue.claimNext()).toBeNull();
   });
 
+  test("lists running turns and cancels one by conversation, with who did it", async () => {
+    const queue = new MessageQueue(openStateDb(":memory:"));
+    const reasons: unknown[] = [];
+    const scheduler = new Scheduler(
+      queue,
+      (_m, signal) =>
+        new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => {
+            reasons.push(signal.reason);
+            resolve();
+          }),
+        ),
+      { maxConcurrent: 2, maxQueue: 10, now: () => 1_000 },
+    );
+    scheduler.submit(msg("A"));
+    scheduler.submit(msg("B"));
+    expect(scheduler.runningTurns().map((t) => [t.message.conversationKey, t.startedAt])).toEqual([
+      ["A", 1_000],
+      ["B", 1_000],
+    ]);
+    expect(scheduler.cancel("A", "U_ADMIN")).toBe(true);
+    expect(scheduler.cancel("nope", "U_ADMIN")).toBe(false);
+    await Bun.sleep(0);
+    expect(reasons).toEqual([{ kind: "cancelled", by: "U_ADMIN" }]);
+    expect(scheduler.runningTurns().map((t) => t.message.conversationKey)).toEqual(["B"]);
+    await scheduler.stop();
+  });
+
   test("stop aborts running turns and refuses new work", async () => {
     const { scheduler, started } = setup(1);
     scheduler.submit(msg("A"));

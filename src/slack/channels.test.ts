@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type ChannelsClient, joinChannels, parseChannelRef } from "./channels.ts";
+import { type ChannelsClient, ensureChannel, joinChannels, parseChannelRef } from "./channels.ts";
 
 function fakeClient(pages: { id: string; name: string }[][], failJoin: string[] = []) {
   const joins: string[] = [];
@@ -18,6 +18,9 @@ function fakeClient(pages: { id: string; name: string }[][], failJoin: string[] 
         if (failJoin.includes(channel)) throw new Error("method_not_supported_for_channel_type");
         joins.push(channel);
         return {};
+      },
+      async info() {
+        return { channel: { is_member: false } };
       },
     },
   };
@@ -68,5 +71,41 @@ describe("joinChannels", () => {
     expect(joins).toEqual(["C0000000001"]);
     expect(logs.some((l) => l.includes("channel not found") && l.includes("secret"))).toBe(true);
     expect(logs.some((l) => l.includes("could not join") && l.includes("C0000000009"))).toBe(true);
+  });
+});
+
+describe("ensureChannel", () => {
+  function client({ joinFails = false, isMember = false } = {}) {
+    const joined: string[] = [];
+    const c: ChannelsClient = {
+      conversations: {
+        list: async () => ({ channels: [{ id: "C0000000001", name: "ops" }] }),
+        join: async ({ channel }) => {
+          if (joinFails) throw new Error("method_not_supported_for_channel_type");
+          joined.push(channel);
+          return {};
+        },
+        info: async () => ({ channel: { is_member: isMember } }),
+      },
+    };
+    return { c, joined };
+  }
+
+  test("joins a public channel by name and returns its ID", async () => {
+    const { c, joined } = client();
+    expect(await ensureChannel(c, "#ops")).toBe("C0000000001");
+    expect(joined).toEqual(["C0000000001"]);
+  });
+
+  test("accepts a private channel the bot is already in", async () => {
+    const { c } = client({ joinFails: true, isMember: true });
+    expect(await ensureChannel(c, "G0000000002")).toBe("G0000000002");
+  });
+
+  test("explains when the bot must be invited", async () => {
+    expect(ensureChannel(client({ joinFails: true }).c, "G0000000002")).rejects.toThrow(
+      "invite me",
+    );
+    expect(ensureChannel(client().c, "#nope")).rejects.toThrow("not found");
   });
 });

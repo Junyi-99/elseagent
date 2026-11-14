@@ -33,9 +33,34 @@ export const queue = sqliteTable(
     status: text("status", { enum: ["pending", "running"] })
       .notNull()
       .default("pending"),
+    /** Set for a scheduled run: there is no Slack message, the result is posted top-level. */
+    scheduleId: integer("schedule_id"),
   },
   (t) => [
     index("queue_status").on(t.status, t.id),
     index("queue_conversation").on(t.conversationKey, t.status),
   ],
+);
+
+/** Recurring tasks created by users through the agent ("check X every morning, post in #ops"). */
+export const schedules = sqliteTable(
+  "schedules",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    /** Cron expression (5 or 6 fields), evaluated in `timezone`. */
+    cron: text("cron").notNull(),
+    /** IANA time zone, e.g. Asia/Shanghai. */
+    timezone: text("timezone").notNull(),
+    /** Slack channel ID the results are posted to. */
+    channel: text("channel").notNull(),
+    /** What Codex is asked to do on each run. */
+    prompt: text("prompt").notNull(),
+    createdBy: text("created_by").notNull(),
+    /** Unix epoch milliseconds. */
+    createdAt: integer("created_at").notNull(),
+    nextRunAt: integer("next_run_at").notNull(),
+    lastRunAt: integer("last_run_at"),
+  },
+  (t) => [index("schedules_next_run").on(t.nextRunAt)],
 );

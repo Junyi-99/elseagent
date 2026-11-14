@@ -74,6 +74,7 @@ describe("loadConfig", () => {
       turnTimeoutMinutes: 30,
       sessionIdleDays: 7,
       stateDir: join(homedir(), ".elseagent"),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     const custom = await writeConfig(
       "limits.yaml",

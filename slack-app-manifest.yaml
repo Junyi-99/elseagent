@@ -30,6 +30,7 @@ oauth_config:
       - reactions:write # add emoji reactions (e.g. a "working on it" marker)
       - channels:join # join public channels on its own
       - channels:read # look up public channels by name
+      - groups:read # check membership of private channels used by scheduled tasks
       - users:read # resolve user names
 settings:
   event_subscriptions:

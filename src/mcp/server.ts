@@ -1,0 +1,182 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import { type Admin, AdminError, type Caller } from "../agent/admin.ts";
+
+/** Header carrying the queue message id of the turn that makes the call. */
+export const TURN_HEADER = "x-elseagent-turn";
+/** Environment variable through which Codex receives the bearer token. */
+export const TOKEN_ENV = "ELSEAGENT_MCP_TOKEN";
+
+export interface McpEndpoint {
+  url: string;
+  token: string;
+  stop(): Promise<void>;
+}
+
+const text = (value: unknown): CallToolResult => ({
+  content: [
+    { type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) },
+  ],
+});
+
+/** Run a tool, turning AdminError into a tool error Codex can read and react to. */
+async function call(fn: () => unknown): Promise<CallToolResult> {
+  try {
+    return text(await fn());
+  } catch (err) {
+    if (err instanceof AdminError) return { ...text(err.message), isError: true };
+    throw err;
+  }
+}
+
+/** The elseagent tools, bound to the caller of one request. */
+export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
+  const server = new McpServer({ name: "elseagent", version: "1.0.0" });
+  const readOnly = { readOnlyHint: true, openWorldHint: false };
+
+  server.registerTool(
+    "status",
+    {
+      description:
+        "This agent's state: limits, turns running now (conversation, user, how long), " +
+        "queued message count, session count, schedule count.",
+      annotations: readOnly,
+    },
+    () => call(() => admin.status()),
+  );
+  server.registerTool(
+    "list_queue",
+    {
+      description: "Messages waiting for a free slot, oldest first (id, conversation, user, text).",
+      inputSchema: { limit: z.number().int().positive().max(200).optional() },
+      annotations: readOnly,
+    },
+    ({ limit }) => call(() => admin.listQueue(limit)),
+  );
+  server.registerTool(
+    "list_sessions",
+    {
+      description:
+        "Conversations with a Codex session, most recently active first. A conversation is " +
+        "`channel:threadTs`, or `channel` for a DM's top level.",
+      inputSchema: { limit: z.number().int().positive().max(200).optional() },
+      annotations: readOnly,
+    },
+    ({ limit }) => call(() => admin.listSessions(limit)),
+  );
+  server.registerTool(
+    "cancel_turn",
+    {
+      description:
+        "Force-stop the turn running in a conversation (see `status`). Its thread is told who " +
+        "stopped it; the session is kept. Cannot stop the turn you are running in.",
+      inputSchema: { conversation: z.string() },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ conversation }) => call(() => admin.cancelTurn(conversation, caller)),
+  );
+  server.registerTool(
+    "remove_queued",
+    {
+      description: "Drop a queued message that has not started (id from `list_queue`).",
+      inputSchema: { id: z.number().int() },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ id }) => call(() => admin.removeQueued(id)),
+  );
+  server.registerTool(
+    "forget_session",
+    {
+      description: "Drop a conversation's Codex session; its next message starts a new session.",
+      inputSchema: { conversation: z.string() },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ conversation }) => call(() => admin.forgetSession(conversation)),
+  );
+  server.registerTool(
+    "schedule_create",
+    {
+      description:
+        "Create a recurring task. On each run a new Codex session does `prompt` and posts the " +
+        "result as a new message in `channel`; people can follow up in its thread. Runs at most " +
+        "every 5 minutes. Confirm the schedule (next run time) to the user afterwards.",
+      inputSchema: {
+        name: z.string().min(1).max(80).describe("Short name, e.g. 'Daily CI check'"),
+        cron: z.string().describe("Cron expression, 5 fields, e.g. '0 9 * * 1-5'"),
+        prompt: z.string().min(1).describe("What to do on each run, written as an instruction"),
+        channel: z
+          .string()
+          .optional()
+          .describe(
+            "Channel name or ID to post in; defaults to the current conversation's channel",
+          ),
+        timezone: z
+          .string()
+          .optional()
+          .describe("IANA time zone, e.g. Asia/Shanghai; defaults to the agent's time zone"),
+      },
+      annotations: { openWorldHint: false },
+    },
+    (input) => call(() => admin.scheduleCreate(input, caller)),
+  );
+  server.registerTool(
+    "schedule_list",
+    { description: "All recurring tasks with their next run time.", annotations: readOnly },
+    () => call(() => admin.scheduleList()),
+  );
+  server.registerTool(
+    "schedule_delete",
+    {
+      description: "Delete a recurring task by id.",
+      inputSchema: { id: z.number().int() },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ id }) => call(() => admin.scheduleDelete(id)),
+  );
+  server.registerTool(
+    "schedule_run_now",
+    {
+      description: "Run a recurring task once now (queued like any message), e.g. to try it out.",
+      inputSchema: { id: z.number().int() },
+      annotations: { openWorldHint: false },
+    },
+    ({ id }) => call(() => admin.scheduleRunNow(id)),
+  );
+  return server;
+}
+
+/**
+ * Serve the elseagent tools over MCP (streamable HTTP) on 127.0.0.1, for this process's Codex
+ * turns only: requests need the bearer token and the id of a turn that is running.
+ */
+export function startMcpServer(
+  admin: Admin,
+  callerFor: (turnId: number) => Caller | null,
+): McpEndpoint {
+  const token = crypto.randomUUID();
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      if (req.headers.get("authorization") !== `Bearer ${token}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      const caller = callerFor(Number(req.headers.get(TURN_HEADER)));
+      if (!caller) return new Response("unknown or finished turn", { status: 403 });
+      // Stateless: a fresh server and transport per request.
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      await buildMcpServer(admin, caller).connect(transport);
+      return transport.handleRequest(req);
+    },
+  });
+  return {
+    url: `http://127.0.0.1:${server.port}/mcp`,
+    token,
+    stop: () => server.stop(true),
+  };
+}

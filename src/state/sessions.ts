@@ -1,4 +1,4 @@
-import { eq, lt } from "drizzle-orm";
+import { count, desc, eq, lt } from "drizzle-orm";
 import type { StateDb } from "./db.ts";
 import { sessions } from "./schema.ts";
 
@@ -37,6 +37,35 @@ export class SessionStore {
         set: { threadId, lastActiveAt, lastSeenTs },
       })
       .run();
+  }
+
+  /** Most recently active sessions first. */
+  list(limit = 20): { conversationKey: string; threadId: string; lastActiveAt: number }[] {
+    return this.db
+      .select({
+        conversationKey: sessions.conversationKey,
+        threadId: sessions.threadId,
+        lastActiveAt: sessions.lastActiveAt,
+      })
+      .from(sessions)
+      .orderBy(desc(sessions.lastActiveAt))
+      .limit(limit)
+      .all();
+  }
+
+  count(): number {
+    return this.db.select({ n: count() }).from(sessions).get()?.n ?? 0;
+  }
+
+  /** Drop one conversation's session; its next message starts a new Codex session. */
+  forget(conversationKey: string): boolean {
+    return (
+      this.db
+        .delete(sessions)
+        .where(eq(sessions.conversationKey, conversationKey))
+        .returning({ key: sessions.conversationKey })
+        .all().length > 0
+    );
   }
 
   /** Forget sessions idle longer than `maxIdleMs`. Returns how many were removed. */

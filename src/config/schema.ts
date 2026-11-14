@@ -28,6 +28,15 @@ const requiredString = (name: string) =>
       `${name} is still the placeholder; set the real value`,
     );
 
+function isTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const positiveInt = (name: string) =>
   z.int(`${name} must be a whole number`).positive(`${name} must be greater than 0`);
 
@@ -48,6 +57,12 @@ const agentSchema = z.object({
   // Where the agent keeps its SQLite state (session mapping, message queue). `~` is expanded;
   // relative paths resolve against the config file.
   stateDir: z.string().trim().min(1).default("~/.elseagent"),
+  // Default time zone for scheduled tasks (IANA name). Defaults to the server's time zone.
+  timezone: z
+    .string()
+    .trim()
+    .refine(isTimezone, "agent.timezone must be an IANA time zone, e.g. Asia/Shanghai")
+    .default(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
 });
 
 // Only what the user may override. Agent-mode behaviour (sandbox, approvals, git check)

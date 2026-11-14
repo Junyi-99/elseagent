@@ -2,23 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Codex } from "@openai/codex-sdk";
 import { SLACK_INSTRUCTIONS } from "./agent/instructions.ts";
 import {
   AGENT_THREAD_DEFAULTS,
   buildCodexOptions,
   buildThreadOptions,
-  createCodex,
+  resolveCodexPath,
 } from "./codex.ts";
 import { ConfigError } from "./config/index.ts";
 
-describe("createCodex", () => {
+describe("resolveCodexPath", () => {
   test("uses codex.path when it resolves", () => {
-    expect(createCodex({ path: "true" })).toBeInstanceOf(Codex);
+    expect(resolveCodexPath({ path: "true" })).toBe(Bun.which("true") as string);
   });
 
   test("rejects a codex.path that does not exist", () => {
-    expect(() => createCodex({ path: "/nope/codex" })).toThrow(ConfigError);
+    expect(() => resolveCodexPath({ path: "/nope/codex" })).toThrow(ConfigError);
   });
 
   test("finds codex on PATH when codex.path is not set", async () => {
@@ -26,16 +25,14 @@ describe("createCodex", () => {
     try {
       await Bun.write(join(bin, "codex"), "#!/bin/sh\n");
       await chmod(join(bin, "codex"), 0o755);
-      expect(createCodex({}, undefined, bin)).toBeInstanceOf(Codex);
+      expect(resolveCodexPath({}, bin)).toBe(join(bin, "codex"));
     } finally {
       await rm(bin, { recursive: true, force: true });
     }
   });
 
   test("errors when codex is not on PATH", () => {
-    expect(() => createCodex({}, undefined, "/nonexistent")).toThrow(
-      "Could not find `codex` on PATH",
-    );
+    expect(() => resolveCodexPath({}, "/nonexistent")).toThrow("Could not find `codex` on PATH");
   });
 });
 
@@ -74,5 +71,26 @@ describe("buildCodexOptions", () => {
     expect(buildCodexOptions(undefined, "/bin/codex").config).toEqual({
       developer_instructions: SLACK_INSTRUCTIONS,
     });
+  });
+});
+
+describe("MCP registration", () => {
+  test("registers the elseagent server with the turn id, token via env, auto-approved", () => {
+    const opts = buildCodexOptions(undefined, "/bin/codex", {
+      url: "http://127.0.0.1:1234/mcp",
+      token: "secret",
+      turnId: 42,
+    });
+    expect(opts.config?.mcp_servers).toEqual({
+      elseagent: {
+        url: "http://127.0.0.1:1234/mcp",
+        bearer_token_env_var: "ELSEAGENT_MCP_TOKEN",
+        http_headers: { "x-elseagent-turn": "42" },
+        default_tools_approval_mode: "approve",
+      },
+    });
+    expect(opts.env?.ELSEAGENT_MCP_TOKEN).toBe("secret");
+    expect(opts.env?.PATH).toBe(process.env.PATH as string);
+    expect(JSON.stringify(opts.config)).not.toContain("secret");
   });
 });

@@ -1,10 +1,13 @@
 import { join } from "node:path";
+import { Admin } from "./agent/admin.ts";
 import { Scheduler } from "./agent/scheduler.ts";
+import { ScheduleRunner } from "./agent/schedules.ts";
 import { createTurnRunner, REACTIONS } from "./agent/turn.ts";
-import { buildThreadOptions, createCodex } from "./codex.ts";
+import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
 import type { Config } from "./config/index.ts";
+import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
 import { conversationKey, createSlackBot, type MessageHandler } from "./slack/index.ts";
-import { MessageQueue, openStateDb, SessionStore } from "./state/index.ts";
+import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "./state/index.ts";
 
 export interface StartOptions {
   configPath: string;
@@ -23,11 +26,18 @@ export async function startApp(
   { configPath, workingDirectory, dryRun = false }: StartOptions,
 ): Promise<void> {
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
-  const codex = createCodex(config.codex, config.agent.prompt);
+  const codexPath = resolveCodexPath(config.codex);
   const threadOptions = buildThreadOptions(config.codex, workingDirectory);
 
-  const { prompt, maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays, stateDir } =
-    config.agent;
+  const {
+    prompt,
+    maxConcurrent,
+    maxQueue,
+    turnTimeoutMinutes,
+    sessionIdleDays,
+    stateDir,
+    timezone,
+  } = config.agent;
   printSummary([
     ["config", configPath],
     ["working directory", workingDirectory],
@@ -35,6 +45,7 @@ export async function startApp(
     ["model", threadOptions.model ?? "(codex default)"],
     ["reasoning effort", threadOptions.modelReasoningEffort ?? "(codex default)"],
     ["prompt", prompt ? `${prompt.length} chars` : "(none)"],
+    ["time zone", timezone],
     [
       "limits",
       `${maxConcurrent} concurrent, queue ${maxQueue}, ` +
@@ -53,12 +64,20 @@ export async function startApp(
   const db = openStateDb(dbPath);
   const sessions = new SessionStore(db);
   const queue = new MessageQueue(db);
+  const schedules = new ScheduleStore(db);
   const sessionIdleMs = sessionIdleDays * DAY;
+  // Set once the MCP server is up (it needs the scheduler, which needs this to start turns).
+  let mcp: McpEndpoint | undefined;
 
   const scheduler = new Scheduler(
     queue,
     createTurnRunner({
-      codex,
+      codexFor: (message) =>
+        createCodex(
+          codexPath,
+          prompt,
+          mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
+        ),
       sessions,
       threadOptions,
       replyTo: bot.replyTo,
@@ -81,9 +100,34 @@ export async function startApp(
     },
   );
 
+  const scheduleRunner = new ScheduleRunner(schedules, scheduler);
+  const admin = new Admin({
+    scheduler,
+    queue,
+    sessions,
+    schedules,
+    scheduleRunner,
+    ensureChannel: bot.ensureChannel,
+    limits: { maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays },
+    defaultTimezone: timezone,
+  });
+  // The elseagent tools, registered with every Codex turn (see buildCodexOptions).
+  mcp = startMcpServer(admin, (turnId) => {
+    const turn = scheduler.runningTurns().find((t) => t.message.id === turnId);
+    if (!turn) return null;
+    const { user, channel, conversationKey } = turn.message;
+    return { user, channel, conversationKey };
+  });
+
   // Messages that were mid-turn when the previous process stopped.
   for (const message of queue.takeInterrupted()) {
     const reply = bot.replyTo(message);
+    if (message.scheduleId !== null) {
+      await reply
+        .post(`A scheduled task (#${message.scheduleId}) was interrupted by a restart.`)
+        .catch(() => {});
+      continue;
+    }
     await reply.unreact(REACTIONS.working);
     await reply.react(REACTIONS.failed);
     await reply
@@ -122,11 +166,21 @@ export async function startApp(
   expireSessions();
   const gc = setInterval(expireSessions, 60 * MINUTE);
 
+  // Queue scheduled tasks when they are due (also catches up once after a restart).
+  const runDueSchedules = () =>
+    scheduleRunner.tick((schedule, err) =>
+      console.warn(`schedule #${schedule.id} "${schedule.name}": ${(err as Error).message}`),
+    );
+  runDueSchedules();
+  const ticker = setInterval(runDueSchedules, 30_000);
+
   const shutdown = async (signal: string) => {
     console.log(`${signal} received, stopping`);
     clearInterval(gc);
+    clearInterval(ticker);
     await bot.stop(); // no new messages
     await scheduler.stop(); // abort running turns; they tell their threads
+    await mcp?.stop();
     db.$client.close();
     process.exit(0);
   };

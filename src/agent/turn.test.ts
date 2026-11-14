@@ -18,6 +18,7 @@ const message = (
   threadTs: "1.0",
   user: "U1",
   text,
+  scheduleId: null,
 });
 
 const json = (message: string, choices: string[] = []) => JSON.stringify({ message, choices });
@@ -47,7 +48,7 @@ function fakeCodex(behave: (input: string, signal: AbortSignal) => Promise<strin
   const codex = {
     startThread: () => thread(null),
     resumeThread: (id: string) => thread(id),
-  } as unknown as TurnDeps["codex"];
+  } as unknown as ReturnType<TurnDeps["codexFor"]>;
   return { codex, calls };
 }
 
@@ -60,13 +61,16 @@ function setup(
   const reactions: string[] = [];
   const contextCalls: (string | null)[] = [];
   const reply: Reply = {
-    post: async (text, choices = []) => void posts.push({ text, choices }),
+    post: async (text, choices = []) => {
+      posts.push({ text, choices });
+      return `9${posts.length}.0`; // ts of the posted message
+    },
     react: async (n) => void reactions.push(`+${n}`),
     unreact: async (n) => void reactions.push(`-${n}`),
   };
   const sessions = new SessionStore(openStateDb(":memory:"));
   const run = createTurnRunner({
-    codex,
+    codexFor: () => codex,
     sessions,
     threadOptions: {},
     replyTo: () => reply,
@@ -167,14 +171,78 @@ describe("turn runner", () => {
   });
 });
 
+describe("scheduled runs", () => {
+  const scheduled = (): QueuedMessage => ({
+    id: 7,
+    conversationKey: "schedule:3:1000",
+    channel: "C_OPS",
+    ts: "",
+    threadTs: null,
+    user: "U1",
+    text: 'Scheduled task "daily" (#3): check CI',
+    scheduleId: 3,
+  });
+
+  test("start a new session, post top-level, and map the posted message's thread", async () => {
+    const { run, calls, posts, reactions, sessions, contextCalls } = setup(async () =>
+      json("CI is green."),
+    );
+    await run(scheduled(), never);
+    expect(calls).toEqual([
+      {
+        kind: "start",
+        id: "thread-1",
+        input: 'Scheduled task "daily" (#3): check CI',
+        schema: REPLY_SCHEMA,
+      },
+    ]);
+    expect(posts).toEqual([{ text: "CI is green.", choices: [] }]);
+    expect(reactions).toEqual([]); // there is no user message to react to
+    expect(contextCalls).toEqual([]);
+    // Follow-ups in the posted message's thread continue this run's session.
+    expect(sessions.get("C_OPS:91.0", DAY)).toEqual({ threadId: "thread-1", lastSeenTs: "91.0" });
+    expect(sessions.get("schedule:3:1000", DAY)).toBeNull();
+  });
+
+  test("each run is a new session", async () => {
+    const { run, calls } = setup(async () => json("ok"));
+    await run(scheduled(), never);
+    await run(scheduled(), never);
+    expect(calls.map((c) => [c.kind, c.id])).toEqual([
+      ["start", "thread-1"],
+      ["start", "thread-2"],
+    ]);
+  });
+});
+
+describe("cancellation", () => {
+  test("a cancelled turn says who stopped it", async () => {
+    const { run, posts, reactions } = setup(
+      (_input, signal) =>
+        new Promise<string>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("aborted"))),
+        ),
+    );
+    const controller = new AbortController();
+    const turn = run(message(), controller.signal);
+    await Bun.sleep(5);
+    controller.abort({ kind: "cancelled", by: "U_ADMIN" });
+    await turn;
+    expect(posts[0]?.text).toBe("Stopped by <@U_ADMIN>.");
+    expect(reactions.at(-1)).toBe(`+${REACTIONS.failed}`);
+  });
+});
+
 describe("formatInput", () => {
   test("is just the message when there is no new context", () => {
-    expect(formatInput({ user: "U9", text: "hi" }, { messages: [], omitted: 0 })).toBe("<@U9>: hi");
+    expect(
+      formatInput({ user: "U9", text: "hi", scheduleId: null }, { messages: [], omitted: 0 }),
+    ).toBe("<@U9>: hi");
   });
 
   test("notes omitted messages", () => {
     const input = formatInput(
-      { user: "U9", text: "hi" },
+      { user: "U9", text: "hi", scheduleId: null },
       { messages: [{ user: "U1", text: "a" }], omitted: 3 },
     );
     expect(input).toContain("(3 earlier messages omitted)\n<@U1>: a");

@@ -2,6 +2,7 @@ import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk"
 import { buildInstructions } from "./agent/instructions.ts";
 import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
+import { TOKEN_ENV, TURN_HEADER } from "./mcp/server.ts";
 
 /** Fixed agent-mode settings: act autonomously inside the working directory, never stop to ask. */
 export const AGENT_THREAD_DEFAULTS = {
@@ -20,27 +21,53 @@ export function buildThreadOptions(config: CodexConfig, workingDirectory: string
   };
 }
 
+/** How a turn reaches the elseagent MCP tools served by this process. */
+export interface McpRegistration {
+  url: string;
+  token: string;
+  /** Queue message id of the turn; tells the tools who is calling. */
+  turnId: number;
+}
+
 /**
- * Client-level Codex options. The built-in Slack instructions plus the agent prompt become
- * Codex's `developer_instructions`, applied to every thread on top of Codex's own system prompt.
+ * Codex options for one turn. The built-in Slack instructions plus the agent prompt become
+ * Codex's `developer_instructions` (on top of Codex's own system prompt). With `mcp`, the
+ * elseagent MCP server is registered; its tools are trusted, so they run without approval
+ * (with `approvalPolicy: never`, anything needing approval would be refused).
  */
-export function buildCodexOptions(prompt: string | undefined, codexPath: string): CodexOptions {
+export function buildCodexOptions(
+  prompt: string | undefined,
+  codexPath: string,
+  mcp?: McpRegistration,
+): CodexOptions {
+  const config: CodexOptions["config"] = { developer_instructions: buildInstructions(prompt) };
+  if (!mcp) return { codexPathOverride: codexPath, config };
   return {
     codexPathOverride: codexPath,
-    config: { developer_instructions: buildInstructions(prompt) },
+    config: {
+      ...config,
+      mcp_servers: {
+        elseagent: {
+          url: mcp.url,
+          // The token travels in the environment, not on the command line. Codex leaves
+          // variables named *TOKEN* out of the shell it runs commands in.
+          bearer_token_env_var: TOKEN_ENV,
+          http_headers: { [TURN_HEADER]: String(mcp.turnId) },
+          default_tools_approval_mode: "approve",
+        },
+      },
+    },
+    // Setting `env` replaces the inherited environment, so pass it along.
+    env: { ...(process.env as Record<string, string>), [TOKEN_ENV]: mcp.token },
   };
 }
 
 /**
- * Create a Codex client using the codex CLI from `codex.path` (absolute path or command name)
- * or `codex` on PATH. The bundled @openai/codex binary is never used: elseagent ships as a
- * single file without node_modules, so source and compiled builds behave the same.
+ * Find the codex CLI: `codex.path` (absolute path or command name) or `codex` on PATH. The
+ * bundled @openai/codex binary is never used: elseagent ships as a single file without
+ * node_modules, so source and compiled builds behave the same.
  */
-export function createCodex(
-  config: CodexConfig,
-  prompt?: string,
-  searchPath = process.env.PATH,
-): Codex {
+export function resolveCodexPath(config: CodexConfig, searchPath = process.env.PATH): string {
   const command = config.path ?? "codex";
   const resolved = Bun.which(command, { PATH: searchPath });
   if (!resolved) {
@@ -51,5 +78,10 @@ export function createCodex(
             "or set codex.path in the config.",
     );
   }
-  return new Codex(buildCodexOptions(prompt, resolved));
+  return resolved;
+}
+
+/** A Codex client for one turn. */
+export function createCodex(codexPath: string, prompt?: string, mcp?: McpRegistration): Codex {
+  return new Codex(buildCodexOptions(prompt, codexPath, mcp));
 }

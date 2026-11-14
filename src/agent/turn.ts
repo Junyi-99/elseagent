@@ -2,7 +2,7 @@ import type { Codex, ThreadOptions } from "@openai/codex-sdk";
 import type { ContextMessage, Reply, ReplyTarget, ThreadContext } from "../slack/index.ts";
 import type { QueuedMessage, SessionStore } from "../state/index.ts";
 import { parseReply, REPLY_SCHEMA } from "./reply.ts";
-import type { TurnRunner } from "./scheduler.ts";
+import { stopReason, type TurnRunner } from "./scheduler.ts";
 
 /** Reactions on the user's message that show where it is. */
 export const REACTIONS = {
@@ -13,7 +13,8 @@ export const REACTIONS = {
 } as const;
 
 export interface TurnDeps {
-  codex: Pick<Codex, "startThread" | "resumeThread">;
+  /** A Codex client for this turn (it carries the turn's identity to the elseagent MCP tools). */
+  codexFor(message: QueuedMessage): Pick<Codex, "startThread" | "resumeThread">;
   sessions: Pick<SessionStore, "get" | "touch">;
   threadOptions: ThreadOptions;
   replyTo(target: ReplyTarget): Reply;
@@ -24,13 +25,19 @@ export interface TurnDeps {
   logger?: Pick<Console, "warn">;
 }
 
+const NO_CONTEXT: ThreadContext = { messages: [], omitted: 0 };
+
 const line = (m: ContextMessage) => `<@${m.user}>: ${m.text}`;
 
-/** What Codex sees: thread messages it hasn't seen yet, then the message addressed to it. */
+/**
+ * What Codex sees: thread messages it hasn't seen yet, then the message addressed to it.
+ * A scheduled run's text is the task description itself.
+ */
 export function formatInput(
-  message: Pick<QueuedMessage, "user" | "text">,
+  message: Pick<QueuedMessage, "user" | "text" | "scheduleId">,
   context: ThreadContext,
 ): string {
+  if (message.scheduleId !== null) return message.text;
   const current = line(message);
   if (context.messages.length === 0) return current;
   const omitted = context.omitted ? `(${context.omitted} earlier messages omitted)\n` : "";
@@ -44,57 +51,81 @@ export function formatInput(
 }
 
 /**
- * Run one Codex turn for a queued Slack message: continue the conversation's Codex thread (or
- * start one) with the thread messages it hasn't seen, stop it after the timeout or on shutdown,
- * and post the reply (with choice buttons) back to Slack.
+ * Run one Codex turn for a queued message.
+ *
+ * A Slack message continues its conversation's Codex thread (or starts one) with the thread
+ * messages it hasn't seen, and the reply goes into that thread. A scheduled run always starts a
+ * new Codex thread and posts its result as a new top-level message; replies in that message's
+ * thread then continue the run's session like any conversation.
  */
 export function createTurnRunner(deps: TurnDeps): TurnRunner {
-  const { codex, sessions, threadOptions, turnTimeoutMs, sessionIdleMs, logger = console } = deps;
+  const { sessions, threadOptions, turnTimeoutMs, sessionIdleMs, logger = console } = deps;
 
-  return async (message, shutdown) => {
+  return async (message, signal) => {
+    const scheduled = message.scheduleId !== null;
     const reply = deps.replyTo(message);
-    await reply.unreact(REACTIONS.queued);
-    await reply.react(REACTIONS.working);
+    const react = (name: string) => (scheduled ? Promise.resolve() : reply.react(name));
+    const unreact = (name: string) => (scheduled ? Promise.resolve() : reply.unreact(name));
+    await unreact(REACTIONS.queued);
+    await react(REACTIONS.working);
 
-    const session = sessions.get(message.conversationKey, sessionIdleMs);
+    const codex = deps.codexFor(message);
+    const session = scheduled ? null : sessions.get(message.conversationKey, sessionIdleMs);
     const thread = session
       ? codex.resumeThread(session.threadId, threadOptions)
       : codex.startThread(threadOptions);
     const timeout = AbortSignal.timeout(turnTimeoutMs);
 
+    // Where the conversation continues: the user's thread, or the scheduled run's new message.
+    let conversation: { key: string; lastSeenTs: string } | null = scheduled
+      ? null
+      : { key: message.conversationKey, lastSeenTs: message.ts };
+    const postAndTrack = async (text: string, choices: string[] = []) => {
+      const ts = await reply.post(text, choices);
+      if (scheduled && ts && !conversation) {
+        conversation = { key: `${message.channel}:${ts}`, lastSeenTs: ts };
+      }
+    };
+
     let outcome: keyof typeof REACTIONS = "failed";
     try {
       // A new session gets the whole thread so far; a continuing one only what it hasn't seen.
-      const context = await deps
-        .threadContext(message, session?.lastSeenTs ?? null)
-        .catch((err: Error): ThreadContext => {
-          logger.warn(`slack: could not read thread context: ${err.message}`);
-          return { messages: [], omitted: 0 };
-        });
+      const context = scheduled
+        ? NO_CONTEXT
+        : await deps
+            .threadContext(message, session?.lastSeenTs ?? null)
+            .catch((err: Error): ThreadContext => {
+              logger.warn(`slack: could not read thread context: ${err.message}`);
+              return NO_CONTEXT;
+            });
       const turn = await thread.run(formatInput(message, context), {
         outputSchema: REPLY_SCHEMA,
-        signal: AbortSignal.any([timeout, shutdown]),
+        signal: AbortSignal.any([timeout, signal]),
       });
       const { message: text, choices } = parseReply(turn.finalResponse);
-      await reply.post(text.trim() || "_(no response)_", choices);
+      await postAndTrack(text.trim() || "_(no response)_", choices);
       outcome = "done";
     } catch (err) {
-      if (shutdown.aborted) {
-        await reply.post("The agent restarted while working on this. Send it again to retry.");
+      const stopped = stopReason(signal);
+      if (stopped?.kind === "cancelled") {
+        await postAndTrack(`Stopped by <@${stopped.by}>.`);
+      } else if (stopped?.kind === "shutdown") {
+        await postAndTrack("The agent restarted while working on this. Send it again to retry.");
       } else if (timeout.aborted) {
-        await reply.post(
+        await postAndTrack(
           `Stopped: this took longer than ${Math.round(turnTimeoutMs / 60_000)} minutes. ` +
             "The conversation is kept, so you can follow up.",
         );
       } else {
         logger.warn(`codex: turn failed for ${message.conversationKey}: ${(err as Error).message}`);
-        await reply.post(`Codex failed: ${(err as Error).message}`);
+        await postAndTrack(`Codex failed: ${(err as Error).message}`);
       }
     } finally {
       // Keep the mapping even after a failure: the thread holds whatever context was built.
-      if (thread.id) sessions.touch(message.conversationKey, thread.id, message.ts);
-      await reply.unreact(REACTIONS.working);
-      await reply.react(REACTIONS[outcome]);
+      const where = conversation as { key: string; lastSeenTs: string } | null;
+      if (thread.id && where) sessions.touch(where.key, thread.id, where.lastSeenTs);
+      await unreact(REACTIONS.working);
+      await react(REACTIONS[outcome]);
     }
   };
 }

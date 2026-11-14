@@ -11,6 +11,7 @@ export interface ChannelsClient {
       response_metadata?: { next_cursor?: string };
     }>;
     join(args: { channel: string }): Promise<unknown>;
+    info(args: { channel: string }): Promise<{ channel?: { is_member?: boolean } }>;
   };
 }
 
@@ -19,7 +20,7 @@ export interface Logger {
   warn(msg: string): void;
 }
 
-const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
+const CHANNEL_ID = /^[CGD][A-Z0-9]{8,}$/;
 
 /** Normalize a configured channel: IDs stay as-is, names lose a leading `#` and are lowercased. */
 export function parseChannelRef(ref: string): { id: string } | { name: string } {
@@ -76,4 +77,28 @@ export async function joinChannels(
     }
   }
   return joined;
+}
+
+/**
+ * Make sure the bot can post in a channel and return its ID: public channels are joined,
+ * private channels and DMs must already include the bot. Throws an Error explaining what to do.
+ */
+export async function ensureChannel(client: ChannelsClient, ref: string): Promise<string> {
+  const parsed = parseChannelRef(ref);
+  let id: string | undefined;
+  if ("id" in parsed) {
+    id = parsed.id;
+  } else {
+    id = (await listPublicChannels(client)).get(parsed.name);
+    if (!id) throw new Error(`Channel ${ref} not found (private channels need an /invite first)`);
+  }
+  try {
+    await client.conversations.join({ channel: id });
+    return id;
+  } catch {
+    // Private channel (or DM): fine if the bot is already a member.
+    const info = await client.conversations.info({ channel: id }).catch(() => null);
+    if (info?.channel?.is_member) return id;
+    throw new Error(`I can't post in ${ref}; invite me there first (/invite @me)`);
+  }
 }

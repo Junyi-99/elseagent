@@ -59,6 +59,25 @@ The agent replies to `@mentions` in channels (in a thread) and to DMs.
   survive a restart. Messages that were mid-turn during a restart are reported back, not rerun.
 - Conversations idle for `agent.sessionIdleDays` are forgotten; their next message starts fresh.
 
+## Agent tools and scheduled tasks
+
+elseagent serves its own MCP tools (on `127.0.0.1`, random port and token) and registers them with
+every Codex turn automatically, so the agent can inspect and manage itself when asked:
+
+- `status`, `list_queue`, `list_sessions`: running turns, queued messages, sessions, limits.
+- `cancel_turn`, `remove_queued`, `forget_session`: stop a running turn (its thread is told who
+  stopped it), drop a queued message, or start a conversation over.
+- `schedule_create`, `schedule_list`, `schedule_delete`, `schedule_run_now`: recurring tasks.
+
+Ask in plain words, e.g. "every weekday at 9am, check the CI dashboard and post a summary in
+#ops". Each run starts a new Codex session and posts its result as a new message in the channel;
+`@`-mention the agent in that message's thread to follow up on that run. Schedules use
+`agent.timezone` unless they set their own, run at most every 5 minutes, and are limited to 50
+per agent. A run missed while the agent was down happens once after it restarts. Public
+channels are joined automatically; private ones need an `/invite` first.
+
+Anyone who can mention the agent can use these tools.
+
 ## Build & distribute
 
 ```bash

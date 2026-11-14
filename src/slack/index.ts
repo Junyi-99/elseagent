@@ -1,6 +1,6 @@
 import { App, type BlockButtonAction, LogLevel, webApi } from "@slack/bolt";
 import { ConfigError, type SlackConfig } from "../config/index.ts";
-import { joinChannels, type Logger } from "./channels.ts";
+import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
 import { fetchThreadContext, type ThreadContext } from "./context.ts";
 import { splitMarkdown } from "./markdown.ts";
@@ -31,8 +31,9 @@ export interface Reply {
   /**
    * Post Markdown in the conversation, split into several messages if it is long. With
    * `choices`, the last message shows them as buttons; a click arrives as a new message.
+   * Returns the ts of the first message posted (where a new thread would start).
    */
-  post(markdown: string, choices?: string[]): Promise<void>;
+  post(markdown: string, choices?: string[]): Promise<string | undefined>;
   /** Add an emoji reaction to the message, e.g. "eyes". Errors are ignored. */
   react(name: string): Promise<void>;
   /** Remove one of our reactions from the message. Errors are ignored. */
@@ -52,6 +53,8 @@ export interface SlackBot {
     afterTs: string | null;
     beforeTs: string;
   }): Promise<ThreadContext>;
+  /** Make sure the bot can post in a channel (joining public ones); returns its ID. */
+  ensureChannel(ref: string): Promise<string>;
   /** Connect, join the configured channels, and start delivering messages to `onMessage`. */
   start(onMessage: MessageHandler): Promise<void>;
   stop(): Promise<void>;
@@ -91,19 +94,26 @@ export async function createSlackBot(
   const replyTo = (target: ReplyTarget): Reply => ({
     async post(markdown, choices = []) {
       const parts = splitMarkdown(markdown);
+      let first: string | undefined;
       for (const [i, part] of parts.entries()) {
-        const thread_ts = target.threadTs ?? undefined;
-        if (i === parts.length - 1 && choices.length > 0) {
-          const blocks = choiceBlocks(part, choices);
-          await client.chat.postMessage({ channel: target.channel, thread_ts, blocks, text: part });
-        } else {
-          await client.chat.postMessage({
-            channel: target.channel,
-            thread_ts,
-            markdown_text: part,
-          });
-        }
+        // Continuation parts of a new top-level message go into its thread.
+        const thread_ts = target.threadTs ?? first;
+        const res =
+          i === parts.length - 1 && choices.length > 0
+            ? await client.chat.postMessage({
+                channel: target.channel,
+                thread_ts,
+                blocks: choiceBlocks(part, choices),
+                text: part,
+              })
+            : await client.chat.postMessage({
+                channel: target.channel,
+                thread_ts,
+                markdown_text: part,
+              });
+        first ??= res.ts;
       }
+      return first;
     },
     async react(name) {
       await client.reactions
@@ -125,6 +135,7 @@ export async function createSlackBot(
     identity,
     replyTo,
     threadContext: (args) => fetchThreadContext(client, args, identity.userId),
+    ensureChannel: (ref) => ensureChannel(client, ref),
     async start(onMessage) {
       const dispatch = async (message: IncomingMessage) => {
         const reply = replyTo(message);

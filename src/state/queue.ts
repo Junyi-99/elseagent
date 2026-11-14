@@ -12,9 +12,13 @@ export interface QueuedMessage {
   threadTs: string | null;
   user: string;
   text: string;
+  /** Set for a scheduled run (no Slack message to reply to). */
+  scheduleId: number | null;
 }
 
-export type NewQueuedMessage = Omit<QueuedMessage, "id">;
+export type NewQueuedMessage = Omit<QueuedMessage, "id" | "scheduleId"> & {
+  scheduleId?: number | null;
+};
 
 const columns = {
   id: queue.id,
@@ -24,6 +28,7 @@ const columns = {
   threadTs: queue.threadTs,
   user: queue.user,
   text: queue.text,
+  scheduleId: queue.scheduleId,
 };
 
 /**
@@ -84,6 +89,28 @@ export class MessageQueue {
         .update(queue)
         .set({ status: "running" })
         .where(inArray(queue.id, next))
+        .returning(columns)
+        .get() ?? null
+    );
+  }
+
+  /** Pending messages, oldest first. */
+  listPending(limit = 50): QueuedMessage[] {
+    return this.db
+      .select(columns)
+      .from(queue)
+      .where(eq(queue.status, "pending"))
+      .orderBy(asc(queue.id))
+      .limit(limit)
+      .all();
+  }
+
+  /** Drop a message that has not started yet. Returns it, or null if it is not pending. */
+  removePending(id: number): QueuedMessage | null {
+    return (
+      this.db
+        .delete(queue)
+        .where(and(eq(queue.id, id), eq(queue.status, "pending")))
         .returning(columns)
         .get() ?? null
     );
