@@ -1,46 +1,6 @@
-# elseagents configuration
-# Default location: /etc/elseagents/config.yaml (override with `elseagents -c <path>`)
-# Generate a fresh copy with `elseagents init`.
-#
-# Codex runs in agent mode: workspace-write sandbox, no approval prompts, works outside git repos.
-# Everything not listed here uses the Codex defaults (incl. auth via `codex login` or CODEX_API_KEY).
-
-agent:
-  # The agent's role, given to Codex as developer instructions in every conversation.
-  # Leave empty for a plain Codex session. Use `|` for multi-line text, e.g.
-  #   prompt: |
-  #     You are the on-call assistant for the payments team.
-  #     Keep replies short; link to files you changed.
-  prompt: ""
-  # Codex turns running at the same time (each is one `codex exec` process; idle sessions don't
-  # count). Further messages wait in a queue, first come first served.
-  # maxConcurrent: 16
-  # Messages that may wait in the queue; beyond this the agent replies that it is busy.
-  # maxQueue: 100
-  # A turn running longer than this is aborted, freeing its slot.
-  # turnTimeoutMinutes: 30
-  # A conversation (Slack thread or DM) idle this long is forgotten; its next message starts a
-  # new Codex session.
-  # sessionIdleDays: 7
-
-codex:
-  # Path to the codex CLI binary. Omit to use `codex` on PATH.
-  # path: /usr/local/bin/codex
-  # Force a model. Omit to use the Codex default.
-  # model: <model-name>
-  # Force reasoning effort: minimal | low | medium | high | xhigh | max | ultra | persistent
-  # Omit to use the Codex default.
-  # reasoningEffort: medium
+# elseagents configuration (default location: /etc/elseagents/config.yaml).
+# Only required settings are listed; every option and its default: docs/config.md
 
 slack:
-  # One Slack app per agent: the bot's name and avatar are set in the Slack app, not here.
-  # Create the app from slack-app-manifest.yaml (see README).
-  # Bot User OAuth Token (xoxb-...), from OAuth & Permissions after installing the app
-  botToken: ""
-  # App-level token with connections:write scope, for Socket Mode (xapp-...),
-  # from Basic Information > App-Level Tokens
-  appToken: ""
-  # Public channels to join at startup, by name or ID. Private channels need an /invite.
-  # channels:
-  #   - general
-  #   - C0123456789
+  botToken: xoxb-REPLACE-ME
+  appToken: xapp-REPLACE-ME

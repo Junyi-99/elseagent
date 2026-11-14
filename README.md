@@ -5,7 +5,7 @@ A Codex agent integrated with Slack, built on [Bun](https://bun.com), [`@openai/
 ## Usage
 
 ```bash
-# Generate a config template (default: ./config.yaml)
+# Generate a minimal config (default: ./config.yaml)
 elseagents init
 elseagents init -o /etc/elseagents/config.yaml --force
 
@@ -20,7 +20,12 @@ repos. Only `model` and `reasoningEffort` can be overridden; everything else use
 
 ## Configuration
 
-See [`config.example.yaml`](config.example.yaml) for every option with comments. It is exactly what `elseagents init` writes. The schema lives in [`src/config/schema.ts`](src/config/schema.ts); when adding an option, update both.
+`elseagents init` writes [`config.example.yaml`](config.example.yaml): only the required Slack
+tokens, as placeholders to replace. Every other option is optional and documented, with its
+default, in [`docs/config.md`](docs/config.md).
+
+When adding an option, add it to [`src/config/schema.ts`](src/config/schema.ts) and document it in
+`docs/config.md` (a test fails if an option is undocumented).
 
 ## Slack setup (one app per agent)
 

@@ -14,11 +14,18 @@ const REASONING_EFFORTS = [
   "persistent",
 ] as const satisfies readonly ModelReasoningEffort[];
 
+/** Marker used by config.example.yaml for values the user must fill in. */
+export const PLACEHOLDER = "REPLACE-ME";
+
 const requiredString = (name: string) =>
   z
     .string({ error: `${name} is required` })
     .trim()
-    .min(1, `${name} is required`);
+    .min(1, `${name} is required`)
+    .refine(
+      (v) => !v.includes(PLACEHOLDER),
+      `${name} is still the placeholder; set the real value`,
+    );
 
 const positiveInt = (name: string) =>
   z.int(`${name} must be a whole number`).positive(`${name} must be greater than 0`);
@@ -47,16 +54,25 @@ const codexSchema = z.object({
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
 });
 
-const slackSchema = z.object({
-  botToken: requiredString("slack.botToken"),
-  appToken: requiredString("slack.appToken"),
-  // Public channels to join at startup, by name (with or without #) or ID.
-  channels: z.array(z.string().trim().min(1)).default([]),
-});
+const slackSchema = z.object(
+  {
+    botToken: requiredString("slack.botToken"),
+    appToken: requiredString("slack.appToken"),
+    // Public channels to join at startup, by name (with or without #) or ID.
+    channels: z.array(z.string().trim().min(1)).default([]),
+  },
+  { error: "slack section is required (slack.botToken, slack.appToken)" },
+);
+
+/** Every config section; docs/config.md must document each of their fields. */
+export const configSections = {
+  agent: agentSchema,
+  codex: codexSchema,
+  slack: slackSchema,
+};
 
 export const configSchema = z.object({
-  // Sections whose options are all commented out parse as null; treat them (or a missing
-  // section) as {}.
+  // Optional sections may be missing or empty (`agent:` with nothing under it parses as null).
   agent: z.preprocess((v) => v ?? {}, agentSchema),
   codex: z.preprocess((v) => v ?? {}, codexSchema),
   slack: slackSchema,

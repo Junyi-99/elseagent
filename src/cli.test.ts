@@ -43,7 +43,7 @@ describe("cli", () => {
   test("run with -c reports validation errors", () => {
     const res = run(["-c", "config.yaml"], dir);
     expect(res.code).toBe(1);
-    expect(res.stderr).toContain("slack.botToken is required");
+    expect(res.stderr).toContain("slack.botToken is still the placeholder");
   });
 
   test("run with a missing config points to init", () => {

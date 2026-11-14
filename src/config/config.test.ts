@@ -5,9 +5,10 @@ import { join } from "node:path";
 import {
   CONFIG_TEMPLATE,
   ConfigError,
-  configSchema,
+  configSections,
   DEFAULT_CONFIG_PATH,
   loadConfig,
+  PLACEHOLDER,
 } from "./index.ts";
 
 let dir: string;
@@ -26,12 +27,13 @@ async function writeConfig(name: string, content: string): Promise<string> {
 
 describe("loadConfig", () => {
   test("loads the template once tokens are filled in", async () => {
-    const filled = CONFIG_TEMPLATE.replace('botToken: ""', "botToken: xoxb-1").replace(
-      'appToken: ""',
-      "appToken: xapp-1",
+    const filled = CONFIG_TEMPLATE.replace("xoxb-REPLACE-ME", "xoxb-1").replace(
+      "xapp-REPLACE-ME",
+      "xapp-1",
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
     expect(config.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", channels: [] });
+    expect(config.agent.maxConcurrent).toBe(16);
     expect(config.codex).toEqual({});
   });
 
@@ -39,8 +41,17 @@ describe("loadConfig", () => {
     const path = await writeConfig("template.yaml", CONFIG_TEMPLATE);
     const err = await loadConfig(path).catch((e) => e);
     expect(err).toBeInstanceOf(ConfigError);
+    expect(err.message).toContain("slack.botToken is still the placeholder");
+    expect(err.message).toContain("slack.appToken is still the placeholder");
+  });
+
+  test("reports missing tokens and a missing slack section", async () => {
+    const empty = await writeConfig("empty-tokens.yaml", 'slack:\n  botToken: ""\n');
+    const err = await loadConfig(empty).catch((e) => e);
     expect(err.message).toContain("slack.botToken is required");
     expect(err.message).toContain("slack.appToken is required");
+    const noSlack = await writeConfig("no-slack.yaml", "agent:\n  maxConcurrent: 2\n");
+    expect(loadConfig(noSlack)).rejects.toThrow("slack section is required");
   });
 
   test("agent.prompt: multi-line is kept, empty means no prompt", async () => {
@@ -130,8 +141,29 @@ describe("config.example.yaml", () => {
     expect(CONFIG_TEMPLATE).toContain(DEFAULT_CONFIG_PATH);
   });
 
-  test("lists every top-level section of the schema, in order", () => {
-    const parsed = Bun.YAML.parse(CONFIG_TEMPLATE) as Record<string, unknown>;
-    expect(Object.keys(parsed)).toEqual(Object.keys(configSchema.shape));
+  test("has no commented-out options or empty values, only real settings", () => {
+    const lines = CONFIG_TEMPLATE.split("\n").filter((l) => l.trim());
+    const firstSetting = lines.findIndex((l) => !l.startsWith("#"));
+    // Comments only in the header; every line after it is an active setting.
+    expect(lines.slice(firstSetting).some((l) => l.trim().startsWith("#"))).toBe(false);
+    expect(CONFIG_TEMPLATE).not.toMatch(/:\s*(""|''|~|null)\s*$/m);
+  });
+
+  test("contains only required settings, as placeholders", () => {
+    expect(Bun.YAML.parse(CONFIG_TEMPLATE)).toEqual({
+      slack: { botToken: `xoxb-${PLACEHOLDER}`, appToken: `xapp-${PLACEHOLDER}` },
+    });
+  });
+});
+
+describe("docs/config.md", () => {
+  test("documents every option of every section", async () => {
+    const docs = await Bun.file(join(import.meta.dir, "../../docs/config.md")).text();
+    const missing = Object.entries(configSections).flatMap(([section, schema]) =>
+      Object.keys(schema.shape)
+        .map((key) => `${section}.${key}`)
+        .filter((option) => !docs.includes(`\`${option}\``)),
+    );
+    expect(missing).toEqual([]);
   });
 });
