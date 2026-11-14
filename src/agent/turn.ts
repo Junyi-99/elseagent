@@ -1,8 +1,9 @@
-import type { Codex, ThreadOptions } from "@openai/codex-sdk";
+import type { Codex, Thread, ThreadItem, ThreadOptions, TurnOptions } from "@openai/codex-sdk";
 import type { ContextMessage, Reply, ReplyTarget, ThreadContext } from "../slack/index.ts";
 import type { QueuedMessage, SessionStore } from "../state/index.ts";
 import { parseReply, REPLY_SCHEMA } from "./reply.ts";
 import { stopReason, type TurnRunner } from "./scheduler.ts";
+import { describeItem, StatusTicker, THINKING } from "./status.ts";
 
 /** Reactions on the user's message that show where it is. */
 export const REACTIONS = {
@@ -12,9 +13,32 @@ export const REACTIONS = {
   failed: "x",
 } as const;
 
+/**
+ * Run a turn streamed, reporting each item as it starts, and return the final response.
+ * Same result handling as the SDK's `Thread.run`.
+ */
+export async function runStreamed(
+  thread: Pick<Thread, "runStreamed">,
+  input: string,
+  options: TurnOptions,
+  onItemStarted: (item: ThreadItem) => void,
+): Promise<string> {
+  const { events } = await thread.runStreamed(input, options);
+  let finalResponse = "";
+  for await (const event of events) {
+    if (event.type === "item.started") onItemStarted(event.item);
+    else if (event.type === "item.completed" && event.item.type === "agent_message") {
+      finalResponse = event.item.text;
+    } else if (event.type === "turn.failed") throw new Error(event.error.message);
+  }
+  return finalResponse;
+}
+
 export interface TurnDeps {
   /** A Codex client for this turn (it carries the turn's identity to the elseagent MCP tools). */
   codexFor(message: QueuedMessage): Pick<Codex, "startThread" | "resumeThread">;
+  /** Throttling of the thread's loading status (tests shorten it). */
+  statusOptions?: ConstructorParameters<typeof StatusTicker>[1];
   sessions: Pick<SessionStore, "get" | "touch">;
   threadOptions: ThreadOptions;
   replyTo(target: ReplyTarget): Reply;
@@ -87,6 +111,10 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       }
     };
 
+    // The "is thinking…" line at the bottom of the thread (none for scheduled runs).
+    const status = new StatusTicker((text) => reply.setStatus(text), deps.statusOptions);
+    if (!scheduled) status.set(THINKING);
+
     let outcome: keyof typeof REACTIONS = "failed";
     try {
       // A new session gets the whole thread so far; a continuing one only what it hasn't seen.
@@ -98,11 +126,17 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
               logger.warn(`slack: could not read thread context: ${err.message}`);
               return NO_CONTEXT;
             });
-      const turn = await thread.run(formatInput(message, context), {
-        outputSchema: REPLY_SCHEMA,
-        signal: AbortSignal.any([timeout, signal]),
-      });
-      const { message: text, choices } = parseReply(turn.finalResponse);
+      const finalResponse = await runStreamed(
+        thread,
+        formatInput(message, context),
+        { outputSchema: REPLY_SCHEMA, signal: AbortSignal.any([timeout, signal]) },
+        (item) => {
+          const text = !scheduled && describeItem(item);
+          if (text) status.set(text);
+        },
+      );
+      await status.stop();
+      const { message: text, choices } = parseReply(finalResponse);
       await postAndTrack(text.trim() || "_(no response)_", choices);
       outcome = "done";
     } catch (err) {
@@ -121,6 +155,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         await postAndTrack(`Codex failed: ${(err as Error).message}`);
       }
     } finally {
+      await status.stop();
       // Keep the mapping even after a failure: the thread holds whatever context was built.
       const where = conversation as { key: string; lastSeenTs: string } | null;
       if (thread.id && where) sessions.touch(where.key, thread.id, where.lastSeenTs);

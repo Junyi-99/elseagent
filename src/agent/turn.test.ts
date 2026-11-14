@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ThreadItem } from "@openai/codex-sdk";
 import type { Reply, ThreadContext } from "../slack/index.ts";
 import { openStateDb, type QueuedMessage, SessionStore } from "../state/index.ts";
 import { REPLY_SCHEMA } from "./reply.ts";
@@ -23,8 +24,14 @@ const message = (
 
 const json = (message: string, choices: string[] = []) => JSON.stringify({ message, choices });
 
-/** Fake Codex: records calls; `behave` decides what each run returns. */
-function fakeCodex(behave: (input: string, signal: AbortSignal) => Promise<string>) {
+/**
+ * Fake Codex: records calls; streams `items` as started, then `behave` decides the final
+ * response (or throws).
+ */
+function fakeCodex(
+  behave: (input: string, signal: AbortSignal) => Promise<string>,
+  items: ThreadItem[] = [],
+) {
   const calls: { kind: "start" | "resume"; id: string; input: string; schema: unknown }[] = [];
   let next = 0;
   const thread = (id: string | null) => {
@@ -33,7 +40,7 @@ function fakeCodex(behave: (input: string, signal: AbortSignal) => Promise<strin
       get id() {
         return threadId;
       },
-      async run(input: string, opts: { signal: AbortSignal; outputSchema: unknown }) {
+      async runStreamed(input: string, opts: { signal: AbortSignal; outputSchema: unknown }) {
         threadId ??= `thread-${++next}`;
         calls.push({
           kind: id ? "resume" : "start",
@@ -41,7 +48,13 @@ function fakeCodex(behave: (input: string, signal: AbortSignal) => Promise<strin
           input,
           schema: opts.outputSchema,
         });
-        return { finalResponse: await behave(input, opts.signal), items: [], usage: null };
+        async function* events() {
+          for (const item of items) yield { type: "item.started", item };
+          const text = await behave(input, opts.signal);
+          yield { type: "item.completed", item: { id: "m", type: "agent_message", text } };
+          yield { type: "turn.completed", usage: null };
+        }
+        return { events: events() };
       },
     };
   };
@@ -54,9 +67,14 @@ function fakeCodex(behave: (input: string, signal: AbortSignal) => Promise<strin
 
 function setup(
   behave: Parameters<typeof fakeCodex>[0],
-  { turnTimeoutMs = 1_000, context = { messages: [], omitted: 0 } as ThreadContext } = {},
+  {
+    turnTimeoutMs = 1_000,
+    context = { messages: [], omitted: 0 } as ThreadContext,
+    items = [] as ThreadItem[],
+  } = {},
 ) {
-  const { codex, calls } = fakeCodex(behave);
+  const { codex, calls } = fakeCodex(behave, items);
+  const statuses: string[] = [];
   const posts: { text: string; choices: string[] }[] = [];
   const reactions: string[] = [];
   const contextCalls: (string | null)[] = [];
@@ -67,10 +85,12 @@ function setup(
     },
     react: async (n) => void reactions.push(`+${n}`),
     unreact: async (n) => void reactions.push(`-${n}`),
+    setStatus: async (text) => void statuses.push(text),
   };
   const sessions = new SessionStore(openStateDb(":memory:"));
   const run = createTurnRunner({
     codexFor: () => codex,
+    statusOptions: { minIntervalMs: 0, refreshMs: 60_000 },
     sessions,
     threadOptions: {},
     replyTo: () => reply,
@@ -82,7 +102,7 @@ function setup(
     sessionIdleMs: 7 * DAY,
     logger: { warn: () => {} },
   });
-  return { run, calls, sessions, posts, reactions, contextCalls };
+  return { run, calls, sessions, posts, reactions, contextCalls, statuses };
 }
 
 const never = new AbortController().signal;
@@ -171,6 +191,33 @@ describe("turn runner", () => {
   });
 });
 
+describe("typing status", () => {
+  test("shows what Codex is doing, then clears before the reply", async () => {
+    const items = [
+      { id: "1", type: "reasoning", text: "" },
+      {
+        id: "2",
+        type: "command_execution",
+        command: "bun test",
+        aggregated_output: "",
+        status: "in_progress",
+      },
+    ] as ThreadItem[];
+    const { run, statuses, posts } = setup(async () => json("done"), { items });
+    await run(message(), never);
+    expect(statuses).toEqual(["is thinking…", "is running `bun test`…", ""]);
+    expect(posts).toHaveLength(1);
+  });
+
+  test("is cleared when the turn fails", async () => {
+    const { run, statuses } = setup(async () => {
+      throw new Error("boom");
+    });
+    await run(message(), never);
+    expect(statuses).toEqual(["is thinking…", ""]);
+  });
+});
+
 describe("scheduled runs", () => {
   const scheduled = (): QueuedMessage => ({
     id: 7,
@@ -184,7 +231,7 @@ describe("scheduled runs", () => {
   });
 
   test("start a new session, post top-level, and map the posted message's thread", async () => {
-    const { run, calls, posts, reactions, sessions, contextCalls } = setup(async () =>
+    const { run, calls, posts, reactions, sessions, contextCalls, statuses } = setup(async () =>
       json("CI is green."),
     );
     await run(scheduled(), never);
@@ -198,6 +245,7 @@ describe("scheduled runs", () => {
     ]);
     expect(posts).toEqual([{ text: "CI is green.", choices: [] }]);
     expect(reactions).toEqual([]); // there is no user message to react to
+    expect(statuses).toEqual([]); // and no thread to show a status in
     expect(contextCalls).toEqual([]);
     // Follow-ups in the posted message's thread continue this run's session.
     expect(sessions.get("C_OPS:91.0", DAY)).toEqual({ threadId: "thread-1", lastSeenTs: "91.0" });

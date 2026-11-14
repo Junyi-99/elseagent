@@ -38,6 +38,11 @@ export interface Reply {
   react(name: string): Promise<void>;
   /** Remove one of our reactions from the message. Errors are ignored. */
   unreact(name: string): Promise<void>;
+  /**
+   * Show a loading status at the bottom of the thread ("is running tests…"); empty clears it.
+   * Slack clears it when we post, or after 2 minutes. No-op outside a thread; errors ignored.
+   */
+  setStatus(status: string): Promise<void>;
 }
 
 export type MessageHandler = (message: IncomingMessage, reply: Reply) => Promise<void>;
@@ -123,6 +128,12 @@ export async function createSlackBot(
     async unreact(name) {
       await client.reactions
         .remove({ channel: target.channel, timestamp: target.ts, name })
+        .catch(() => {});
+    },
+    async setStatus(status) {
+      if (!target.threadTs) return;
+      await client.assistant.threads
+        .setStatus({ channel_id: target.channel, thread_ts: target.threadTs, status })
         .catch(() => {});
     },
   });
