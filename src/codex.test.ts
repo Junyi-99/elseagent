@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync } from "node:fs";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,8 @@ import {
   AGENT_THREAD_DEFAULTS,
   buildCodexOptions,
   buildThreadOptions,
+  deleteCodexThread,
+  hasRollout,
   resolveCodexPath,
 } from "./codex.ts";
 import { ConfigError } from "./config/index.ts";
@@ -128,5 +131,42 @@ describe("commands' environment", () => {
     expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).not.toHaveProperty(
       "shell_environment_policy",
     );
+  });
+});
+
+describe("deleteCodexThread", () => {
+  const ID = "01a1df7a-b0ae-7d63-8c20-5368d061e33f";
+  const setup = async (exitCode: number) => {
+    const dir = mkdtempSync(join(tmpdir(), "elseagent-codex-"));
+    const codex = join(dir, "codex");
+    await Bun.write(
+      codex,
+      `#!/bin/sh\necho "$@" > "${dir}/args"\necho "failed to delete session" >&2\nexit ${exitCode}\n`,
+    );
+    chmodSync(codex, 0o755);
+    return { dir, codex, home: join(dir, "home") };
+  };
+
+  test("runs codex delete --force", async () => {
+    const { dir, codex, home } = await setup(0);
+    await deleteCodexThread(codex, ID, home);
+    expect((await Bun.file(join(dir, "args")).text()).trim()).toBe(`delete --force ${ID}`);
+  });
+
+  test("a failure counts only while the rollout still exists", async () => {
+    const { codex, home } = await setup(1);
+    await deleteCodexThread(codex, ID, home); // already gone
+    await Bun.write(
+      join(home, "sessions/2026/11/15", `rollout-2026-11-15T21-52-05-${ID}.jsonl.zst`),
+      "x",
+    );
+    expect(await hasRollout(ID, home)).toBe(true);
+    expect(deleteCodexThread(codex, ID, home)).rejects.toThrow("failed to delete session");
+  });
+
+  test("refuses anything but a thread id", async () => {
+    const { dir, codex, home } = await setup(0);
+    expect(deleteCodexThread(codex, "--help", home)).rejects.toThrow("not a Codex thread id");
+    expect(await Bun.file(join(dir, "args")).exists()).toBe(false);
   });
 });

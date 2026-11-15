@@ -1,6 +1,6 @@
-import { count, desc, eq, lt, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { StateDb } from "./db.ts";
-import { sessions } from "./schema.ts";
+import { codexThreads, sessions } from "./schema.ts";
 
 export interface SessionInfo {
   /** Null right after `/new`: the next turn starts a new Codex thread. */
@@ -43,14 +43,23 @@ export class SessionStore {
   /** Record a turn: the Codex thread the conversation uses and the last Slack message it saw. */
   touch(conversationKey: string, threadId: string, lastSeenTs: string | null = null): void {
     const lastActiveAt = this.now();
-    this.db
-      .insert(sessions)
-      .values({ conversationKey, threadId, lastActiveAt, lastSeenTs })
-      .onConflictDoUpdate({
-        target: sessions.conversationKey,
-        set: { threadId, lastActiveAt, lastSeenTs },
-      })
-      .run();
+    this.db.transaction((tx) => {
+      tx.insert(sessions)
+        .values({ conversationKey, threadId, lastActiveAt, lastSeenTs })
+        .onConflictDoUpdate({
+          target: sessions.conversationKey,
+          set: { threadId, lastActiveAt, lastSeenTs },
+        })
+        .run();
+      if (!threadId) return;
+      tx.insert(codexThreads)
+        .values({ threadId, conversationKey, lastUsedAt: lastActiveAt })
+        .onConflictDoUpdate({
+          target: codexThreads.threadId,
+          set: { conversationKey, lastUsedAt: lastActiveAt },
+        })
+        .run();
+    });
   }
 
   /**
@@ -159,6 +168,53 @@ export class SessionStore {
         .returning({ key: sessions.conversationKey })
         .all().length > 0
     );
+  }
+
+  /**
+   * Conversations idle since before `cutoff` (epoch ms), oldest first, except `keep` (e.g. ones
+   * with queued messages). Their Codex thread is empty when there is none.
+   */
+  idleSince(cutoff: number, keep: string[] = []): { conversationKey: string; threadId: string }[] {
+    return this.db
+      .select({ conversationKey: sessions.conversationKey, threadId: sessions.threadId })
+      .from(sessions)
+      .where(and(lt(sessions.lastActiveAt, cutoff), notInArray(sessions.conversationKey, keep)))
+      .orderBy(sessions.lastActiveAt)
+      .all();
+  }
+
+  /** Delete sessions (no turn may be running in them). */
+  deleteSessions(conversationKeys: string[]): void {
+    if (conversationKeys.length === 0) return;
+    this.db.delete(sessions).where(inArray(sessions.conversationKey, conversationKeys)).run();
+  }
+
+  /**
+   * Codex threads last used before `cutoff` that no remaining session maps to: they can be
+   * deleted from Codex's storage.
+   */
+  unusedThreads(cutoff: number): { threadId: string; conversationKey: string }[] {
+    const mapped = this.db.select({ id: sessions.threadId }).from(sessions);
+    return this.db
+      .select({ threadId: codexThreads.threadId, conversationKey: codexThreads.conversationKey })
+      .from(codexThreads)
+      .where(and(lt(codexThreads.lastUsedAt, cutoff), notInArray(codexThreads.threadId, mapped)))
+      .orderBy(codexThreads.lastUsedAt)
+      .all();
+  }
+
+  /** The Codex thread was deleted from Codex's storage: stop tracking it. */
+  dropThread(threadId: string): void {
+    this.db.delete(codexThreads).where(eq(codexThreads.threadId, threadId)).run();
+  }
+
+  /** Conversation keys that still have a session. */
+  conversationKeys(): string[] {
+    return this.db
+      .select({ key: sessions.conversationKey })
+      .from(sessions)
+      .all()
+      .map((r) => r.key);
   }
 
   /** Forget sessions idle longer than `maxIdleMs`. Returns how many were removed. */

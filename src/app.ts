@@ -1,6 +1,7 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Admin } from "./agent/admin.ts";
+import { Cleanup } from "./agent/cleanup.ts";
 import { createMessageHandler } from "./agent/inbox.ts";
 import { Scheduler } from "./agent/scheduler.ts";
 import { ScheduleRunner } from "./agent/schedules.ts";
@@ -9,11 +10,17 @@ import { Channels } from "./channels/registry.ts";
 import { createSlackBot } from "./channels/slack/index.ts";
 import { createTelegramBot } from "./channels/telegram/index.ts";
 import type { Channel } from "./channels/types.ts";
-import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
+import { buildThreadOptions, createCodex, deleteCodexThread, resolveCodexPath } from "./codex.ts";
 import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
 import { type Config, ConfigError } from "./config/index.ts";
 import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
-import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "./state/index.ts";
+import {
+  MessageQueue,
+  openStateDb,
+  ScheduleStore,
+  SessionStore,
+  UsageStore,
+} from "./state/index.ts";
 
 export interface StartOptions {
   configPath: string;
@@ -94,6 +101,7 @@ export async function startApp(
   const sessions = new SessionStore(db);
   const queue = new MessageQueue(db);
   const schedules = new ScheduleStore(db);
+  const usage = new UsageStore(db);
   const sessionIdleMs = sessionIdleDays * DAY;
   // Set once the MCP server is up (it needs the scheduler, which needs this to start turns).
   let mcp: McpEndpoint | undefined;
@@ -114,6 +122,7 @@ export async function startApp(
       replyTo: channels.replyTo,
       threadContext: channels.threadContext,
       download: channels.download,
+      usage,
       turnTimeoutMs: turnTimeoutMinutes * MINUTE,
       sessionIdleMs,
     }),
@@ -131,6 +140,13 @@ export async function startApp(
     sessions,
     schedules,
     scheduleRunner,
+    usage,
+    cleanup: new Cleanup({
+      sessions,
+      busyConversations: () => queue.conversations(),
+      deleteThread: (threadId) => deleteCodexThread(codexPath, threadId),
+      workspace,
+    }),
     ensureChannel: channels.ensureChannel,
     limits: { maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays },
     defaultTimezone: timezone,

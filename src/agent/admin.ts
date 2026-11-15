@@ -1,8 +1,16 @@
 import { TELEGRAM_PREFIX } from "../channels/types.ts";
-import type { MessageQueue, Schedule, ScheduleStore, SessionStore } from "../state/index.ts";
+import type {
+  MessageQueue,
+  Schedule,
+  ScheduleStore,
+  SessionStore,
+  UsageStore,
+} from "../state/index.ts";
+import type { Cleanup } from "./cleanup.ts";
 import { checkTimezone, formatTime, ScheduleError } from "./cron.ts";
 import type { Scheduler } from "./scheduler.ts";
 import type { ScheduleRunner } from "./schedules.ts";
+import { summarizeUsage, type UsageGroup, UsagePeriodError, usagePeriod } from "./usage.ts";
 
 /** Who is calling an admin tool: the turn the Codex call came from. */
 export interface Caller {
@@ -17,6 +25,8 @@ export interface AdminDeps {
   sessions: Pick<SessionStore, "list" | "count" | "forget" | "addressed" | "setMuted">;
   schedules: Pick<ScheduleStore, "list" | "get" | "delete" | "count">;
   scheduleRunner: Pick<ScheduleRunner, "create" | "runNow">;
+  usage: Pick<UsageStore, "between">;
+  cleanup: Pick<Cleanup, "run">;
   /** Make sure the bot can post in `ref` (name or ID) and return the channel ID. */
   ensureChannel(ref: string): Promise<string>;
   limits: {
@@ -114,6 +124,41 @@ export class Admin {
     return follow
       ? `Following ${conversation} again: replies there reach the agent without a mention.`
       : `Stopped following ${conversation}: the agent only answers mentions there now.`;
+  }
+
+  /** Token usage over a period (default: the last 7 days), optionally broken down. */
+  usage(input: { since?: string; until?: string; days?: number; groupBy?: UsageGroup }) {
+    const timezone = this.deps.defaultTimezone;
+    try {
+      const period = usagePeriod(input, timezone, this.now());
+      const rows = this.deps.usage.between(period.from, period.to);
+      return { timezone, ...summarizeUsage(rows, period, timezone, input.groupBy) };
+    } catch (err) {
+      if (err instanceof UsagePeriodError) throw new AdminError(err.message);
+      throw err;
+    }
+  }
+
+  private cleaning = false;
+
+  /**
+   * Delete what conversations idle for `olderThanDays` leave behind: sessions, Codex threads and
+   * attachments. With `dryRun`, only count them.
+   */
+  async cleanup({
+    olderThanDays = 30,
+    dryRun = false,
+  }: {
+    olderThanDays?: number;
+    dryRun?: boolean;
+  }) {
+    if (this.cleaning) throw new AdminError("A cleanup is already running.");
+    this.cleaning = true;
+    try {
+      return await this.deps.cleanup.run({ olderThanDays, dryRun });
+    } finally {
+      this.cleaning = false;
+    }
   }
 
   forgetSession(conversation: string): string {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Input, ThreadItem } from "@openai/codex-sdk";
 import type { Reply, ReplyTarget, ThreadContext } from "../channels/types.ts";
-import { openStateDb, type QueuedMessage, SessionStore } from "../state/index.ts";
+import { openStateDb, type QueuedMessage, SessionStore, type UsageRecord } from "../state/index.ts";
 import { REPLY_SCHEMA } from "./reply.ts";
 import {
   createTurnRunner,
@@ -67,7 +67,16 @@ function fakeCodex(
           const prompt = typeof input === "string" ? input : (input[0] as { text: string }).text;
           const text = await behave(prompt, opts.signal);
           yield { type: "item.completed", item: { id: "m", type: "agent_message", text } };
-          yield { type: "turn.completed", usage: null };
+          yield {
+            type: "turn.completed",
+            usage: {
+              input_tokens: 10,
+              cached_input_tokens: 4,
+              cache_write_input_tokens: 0,
+              output_tokens: 3,
+              reasoning_output_tokens: 1,
+            },
+          };
         }
         return { events: events() };
       },
@@ -93,6 +102,7 @@ function setup(
   const statuses: string[] = [];
   const posts: { text: string; choices: string[]; files?: string[] }[] = [];
   const downloads: string[] = [];
+  const usage: UsageRecord[] = [];
   const workspace = mkdtempSync(join(tmpdir(), "elseagent-turn-"));
   const reactions: string[] = [];
   const contextCalls: (string | null)[] = [];
@@ -119,6 +129,8 @@ function setup(
       targets.push(target);
       return reply;
     },
+    usage: { record: (r) => void usage.push(r) },
+    now: () => 5_000,
     download: async (_chat, file, dest) => {
       downloads.push(file.name);
       await Bun.write(dest, `contents of ${file.name}`);
@@ -142,6 +154,7 @@ function setup(
     targets,
     downloads,
     workspace,
+    usage,
   };
 }
 
@@ -531,5 +544,42 @@ describe("files", () => {
     await Bun.write(join(workspace, "r.txt"), "report");
     await run(message(), never);
     expect(posts).toEqual([{ text: "", choices: [], files: ["r.txt"] }]);
+  });
+});
+
+describe("sessions and usage", () => {
+  test("records each completed turn's token usage", async () => {
+    const { run, usage } = setup(async () => json("ok"));
+    await run(message(), never);
+    expect(usage).toEqual([
+      {
+        at: 5_000,
+        conversationKey: "C1:1.0",
+        channel: "C1",
+        user: "U1",
+        scheduleId: null,
+        threadId: "thread-1",
+        inputTokens: 10,
+        cachedInputTokens: 4,
+        outputTokens: 3,
+        reasoningOutputTokens: 1,
+        durationMs: 0,
+      },
+    ]);
+  });
+
+  test("a deleted Codex session is replaced by a new one that reads the whole thread", async () => {
+    const s = setup(async () => {
+      if (s.calls.at(-1)?.kind === "resume") {
+        throw new Error("thread/resume failed: no rollout found for thread id t-old");
+      }
+      return json("Back.");
+    });
+    s.sessions.touch("C1:1.0", "t-old", "1.5");
+    await s.run(message(), never);
+    expect(s.calls.map((c) => c.kind)).toEqual(["resume", "start"]);
+    expect(s.contextCalls).toEqual(["1.5", null]);
+    expect(s.posts).toEqual([{ text: "Back.", choices: [] }]);
+    expect(s.sessions.get("C1:1.0", DAY)?.threadId).toBe("thread-1");
   });
 });

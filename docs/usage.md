@@ -38,7 +38,9 @@ configured, one agent answers in both, sharing its queue and limits.
   come, first served, one turn at a time per conversation).
 - The session mapping and the queue live in SQLite under `stateDir`, so queued messages
   survive a restart. Messages that were mid-turn during a restart are reported back, not rerun.
-- Conversations idle for `sessionIdleDays` are forgotten; their next message starts fresh.
+- Conversations idle for `sessionIdleDays` are forgotten; their next message starts fresh. Codex
+  keeps their history on disk until a `cleanup`. A conversation whose Codex session is gone
+  (deleted by cleanup, or by hand) also starts a new session, with the whole thread as context.
 
 ## Agent tools and scheduled tasks
 
@@ -49,6 +51,12 @@ with every Codex turn, so the agent can inspect and manage itself when asked:
 - `cancel_turn`, `remove_queued`, `forget_session`: stop a running turn (its conversation is told
   who stopped it), drop a queued message, or start a conversation over.
 - `schedule_create`, `schedule_list`, `schedule_delete`, `schedule_run_now`: recurring tasks.
+- `usage`: Codex token usage over a period (default the last 7 days), by day, user, channel,
+  conversation or schedule. Ask "how many tokens did we use this week, per person?".
+- `cleanup`: for conversations idle more than 30 days (or as asked), delete their sessions, the
+  Codex sessions Codex saved for them (`codex delete`) and their attachments. The agent counts
+  first (a dry run) and asks before deleting. A cleaned-up conversation that becomes active again
+  starts a new Codex session that reads the thread again. Usage records are kept.
 
 Ask in plain words, e.g. "every weekday at 9am, check the CI dashboard and post a summary in
 #ops". Each run starts a new Codex session and posts its result as a new conversation (a Slack

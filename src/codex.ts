@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
 import { buildInstructions } from "./agent/instructions.ts";
 import type { CodexConfig } from "./config/index.ts";
@@ -110,4 +112,43 @@ export function resolveCodexPath(config: CodexConfig, searchPath = process.env.P
 /** A Codex client for one turn. */
 export function createCodex(options: CodexClientOptions): Codex {
   return new Codex(buildCodexOptions(options));
+}
+
+/** Codex's data directory: `CODEX_HOME`, or ~/.codex. */
+export const codexHome = (env: Record<string, string | undefined> = process.env) =>
+  env.CODEX_HOME || join(homedir(), ".codex");
+
+const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether Codex still has a saved session (rollout file) for a thread. */
+export async function hasRollout(threadId: string, home = codexHome()): Promise<boolean> {
+  const glob = new Bun.Glob(`**/rollout-*-${threadId}.jsonl*`);
+  for (const dir of ["sessions", "archived_sessions"]) {
+    try {
+      for await (const _ of glob.scan({ cwd: join(home, dir), onlyFiles: true })) return true;
+    } catch {
+      // no such directory
+    }
+  }
+  return false;
+}
+
+/**
+ * Delete a Codex thread from Codex's storage with `codex delete --force`. A thread that is
+ * already gone counts as deleted.
+ */
+export async function deleteCodexThread(
+  codexPath: string,
+  threadId: string,
+  home = codexHome(),
+): Promise<void> {
+  if (!THREAD_ID.test(threadId)) throw new Error(`not a Codex thread id: ${threadId}`);
+  const proc = Bun.spawn([codexPath, "delete", "--force", threadId], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  if (code === 0 || !(await hasRollout(threadId, home))) return;
+  throw new Error(stderr.trim() || `codex delete exited with code ${code}`);
 }

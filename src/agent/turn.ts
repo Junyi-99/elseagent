@@ -5,6 +5,7 @@ import type {
   ThreadItem,
   ThreadOptions,
   TurnOptions,
+  Usage,
 } from "@openai/codex-sdk";
 import {
   type Attachment,
@@ -15,7 +16,7 @@ import {
   type ReplyTarget,
   type ThreadContext,
 } from "../channels/types.ts";
-import type { MessageQueue, QueuedMessage, SessionStore } from "../state/index.ts";
+import type { MessageQueue, QueuedMessage, SessionStore, UsageStore } from "../state/index.ts";
 import {
   attachmentsDir,
   describeFiles,
@@ -54,25 +55,30 @@ export const NEW_SESSION_REPLY =
   "Started a new session. I won't remember what we discussed before this point.";
 
 /**
- * Run a turn streamed, reporting each item as it starts, and return the final response.
- * Same result handling as the SDK's `Thread.run`.
+ * Run a turn streamed, reporting each item as it starts, and return the final response and the
+ * turn's token usage. Same result handling as the SDK's `Thread.run`.
  */
 export async function runStreamed(
   thread: Pick<Thread, "runStreamed">,
   input: Input,
   options: TurnOptions,
   onItemStarted: (item: ThreadItem) => void,
-): Promise<string> {
+): Promise<{ finalResponse: string; usage: Usage | null }> {
   const { events } = await thread.runStreamed(input, options);
   let finalResponse = "";
+  let usage: Usage | null = null;
   for await (const event of events) {
     if (event.type === "item.started") onItemStarted(event.item);
     else if (event.type === "item.completed" && event.item.type === "agent_message") {
       finalResponse = event.item.text;
-    } else if (event.type === "turn.failed") throw new Error(event.error.message);
+    } else if (event.type === "turn.completed") usage = event.usage;
+    else if (event.type === "turn.failed") throw new Error(event.error.message);
   }
-  return finalResponse;
+  return { finalResponse, usage };
 }
+
+/** Resuming a Codex thread that was deleted (e.g. by cleanup) fails with this. */
+export const isMissingThread = (err: unknown) => /no rollout found/i.test(String(err));
 
 export interface TurnDeps {
   /** A Codex client for this turn (it carries the turn's identity to the elseagent MCP tools). */
@@ -86,6 +92,9 @@ export interface TurnDeps {
   replyTo(target: ReplyTarget): Reply;
   /** Thread messages after `afterTs` (null: from the start) and before the message itself. */
   threadContext(message: QueuedMessage, afterTs: string | null): Promise<ThreadContext>;
+  /** Where each completed turn's token usage is recorded. */
+  usage?: Pick<UsageStore, "record">;
+  now?: () => number;
   /** Download a file attached to a message in `chat` (see `Channel.download`). */
   download(chat: string, file: Attachment, dest: string, signal?: AbortSignal): Promise<void>;
   turnTimeoutMs: number;
@@ -155,6 +164,7 @@ export function formatInput(
 export function createTurnRunner(deps: TurnDeps): TurnRunner {
   const { sessions, threadOptions, turnTimeoutMs, sessionIdleMs, logger = console } = deps;
   const workspace = threadOptions.workingDirectory ?? process.cwd();
+  const now = deps.now ?? Date.now;
 
   /**
    * Download the files of the message and of the thread context into the conversation's
@@ -164,11 +174,21 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     message: QueuedMessage,
     context: ThreadContext,
     signal: AbortSignal,
+    /** Files already downloaded in this turn, by ref (a retried input doesn't fetch them again). */
+    cache: Map<string, SavedFile>,
   ): Promise<Input> => {
     const dir = attachmentsDir(workspace, message.conversationKey);
     const download = (file: Attachment, dest: string) =>
       deps.download(message.channel, file, dest, signal);
-    const save = (files: Attachment[] = []) => saveAttachments(files, dir, download);
+    const save = async (files: Attachment[] = []) => {
+      const missing = files.filter((f) => !cache.has(f.ref));
+      const saved = await saveAttachments(missing, dir, download);
+      missing.forEach((f, i) => {
+        const s = saved[i];
+        if (s) cache.set(f.ref, s);
+      });
+      return files.map((f) => cache.get(f.ref)).filter((f): f is SavedFile => f !== undefined);
+    };
     const messages: Said[] = [];
     for (const m of context.messages) messages.push({ ...m, saved: await save(m.files) });
     const current: Said = { ...message, saved: await save(message.files) };
@@ -213,8 +233,9 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     }
     await react(REACTIONS.working);
 
+    const startedAt = now();
     const codex = deps.codexFor(message);
-    const thread = session?.threadId
+    let thread = session?.threadId
       ? codex.resumeThread(session.threadId, threadOptions)
       : codex.startThread(threadOptions);
     const timeout = AbortSignal.timeout(turnTimeoutMs);
@@ -245,25 +266,54 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
 
     let failed = true;
     try {
+      const downloaded = new Map<string, SavedFile>();
       // A new session gets the whole thread so far; a continuing one only what it hasn't seen.
-      const context = scheduled
-        ? NO_CONTEXT
-        : await deps
-            .threadContext(message, session?.lastSeenTs ?? null)
-            .catch((err: Error): ThreadContext => {
+      const runTurn = async (afterTs: string | null) => {
+        const context = scheduled
+          ? NO_CONTEXT
+          : await deps.threadContext(message, afterTs).catch((err: Error): ThreadContext => {
               logger.warn(`could not read thread context: ${err.message}`);
               return NO_CONTEXT;
             });
-      const input = await withAttachments(message, context, turnSignal);
-      const finalResponse = await runStreamed(
-        thread,
-        input,
-        { outputSchema: REPLY_SCHEMA, signal: turnSignal },
-        (item) => {
-          const text = showStatus && describeItem(item);
-          if (text) status.set(text);
-        },
-      );
+        const input = await withAttachments(message, context, turnSignal, downloaded);
+        return runStreamed(
+          thread,
+          input,
+          { outputSchema: REPLY_SCHEMA, signal: turnSignal },
+          (item) => {
+            const text = showStatus && describeItem(item);
+            if (text) status.set(text);
+          },
+        );
+      };
+      let result: Awaited<ReturnType<typeof runStreamed>>;
+      try {
+        result = await runTurn(session?.lastSeenTs ?? null);
+      } catch (err) {
+        // The conversation's Codex session was deleted: start a new one with the whole thread.
+        if (!session?.threadId || !isMissingThread(err) || turnSignal.aborted) throw err;
+        logger.warn(
+          `codex: session ${session.threadId} of ${message.conversationKey} is gone; starting a new one`,
+        );
+        thread = codex.startThread(threadOptions);
+        result = await runTurn(null);
+      }
+      const { finalResponse, usage } = result;
+      if (usage) {
+        deps.usage?.record({
+          at: now(),
+          conversationKey: message.conversationKey,
+          channel: message.channel,
+          user: scheduled ? "" : message.user,
+          scheduleId: message.scheduleId,
+          threadId: thread.id,
+          inputTokens: usage.input_tokens,
+          cachedInputTokens: usage.cached_input_tokens,
+          outputTokens: usage.output_tokens,
+          reasoningOutputTokens: usage.reasoning_output_tokens,
+          durationMs: now() - startedAt,
+        });
+      }
       await status.stop();
       const { reply: answer, message: text, choices, files: paths } = parseReply(finalResponse);
       // Only a message the agent wasn't asked directly may go unanswered.

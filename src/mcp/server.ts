@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { type Admin, AdminError, type Caller } from "../agent/admin.ts";
+import { USAGE_GROUPS } from "../agent/usage.ts";
 
 /** Header carrying the queue message id of the turn that makes the call. */
 export const TURN_HEADER = "x-elseagent-turn";
@@ -112,6 +113,53 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
       annotations: { destructiveHint: true, openWorldHint: false },
     },
     ({ conversation }) => call(() => admin.forgetSession(conversation)),
+  );
+  server.registerTool(
+    "usage",
+    {
+      description:
+        "Codex token usage of this agent over a period: turns, input tokens (cached ones " +
+        "included), output tokens (reasoning included), optionally broken down by day, user, " +
+        "channel, conversation or schedule. Defaults to the last 7 days. Dates are in the " +
+        "agent's time zone (returned with the result).",
+      inputSchema: {
+        since: z
+          .string()
+          .optional()
+          .describe("Start: YYYY-MM-DD (start of that day) or an ISO 8601 date-time"),
+        until: z
+          .string()
+          .optional()
+          .describe("End: YYYY-MM-DD (that day included) or an ISO 8601 date-time; default now"),
+        days: z
+          .number()
+          .int()
+          .positive()
+          .max(3660)
+          .optional()
+          .describe("Without since: this many days before until (default 7)"),
+        groupBy: z.enum(USAGE_GROUPS).optional(),
+      },
+      annotations: readOnly,
+    },
+    (input) => call(() => admin.usage(input)),
+  );
+  server.registerTool(
+    "cleanup",
+    {
+      description:
+        "Free space taken by old conversations: for conversations idle more than " +
+        "`olderThanDays` (default 30), delete their sessions, their Codex sessions (history " +
+        "saved by Codex) and the files people attached. If such a conversation becomes active " +
+        "again, it starts a new Codex session that reads the thread again. Usage records are " +
+        "kept. Run with dryRun first to see what would be deleted, and confirm with the user.",
+      inputSchema: {
+        olderThanDays: z.number().int().min(1).max(3650).optional(),
+        dryRun: z.boolean().optional().describe("Only count what would be deleted"),
+      },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    (input) => call(() => admin.cleanup(input)),
   );
   server.registerTool(
     "schedule_create",

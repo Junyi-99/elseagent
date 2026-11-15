@@ -122,6 +122,15 @@ export class MessageQueue {
     );
   }
 
+  /** Conversations with a message waiting or running. */
+  conversations(): string[] {
+    return this.db
+      .selectDistinct({ key: queue.conversationKey })
+      .from(queue)
+      .all()
+      .map((r) => r.key);
+  }
+
   /** Pending messages, oldest first. */
   listPending(limit = 50): QueuedMessage[] {
     return this.db

@@ -1,10 +1,20 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Admin, type Caller } from "../agent/admin.ts";
+import { Cleanup } from "../agent/cleanup.ts";
 import type { RunningTurn } from "../agent/scheduler.ts";
 import { ScheduleRunner } from "../agent/schedules.ts";
-import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "../state/index.ts";
+import {
+  MessageQueue,
+  openStateDb,
+  ScheduleStore,
+  SessionStore,
+  UsageStore,
+} from "../state/index.ts";
 import { type McpEndpoint, startMcpServer, TURN_HEADER } from "./server.ts";
 
 // A running turn (id 1) in conversation C1:1.0, plus another one (id 2) that can be cancelled.
@@ -30,6 +40,8 @@ const db = openStateDb(":memory:");
 const queue = new MessageQueue(db);
 const sessions = new SessionStore(db);
 const schedules = new ScheduleStore(db);
+const usage = new UsageStore(db);
+const deletedThreads: string[] = [];
 const scheduler = {
   runningTurns: () => turns,
   cancel: (key: string, by: string) => {
@@ -43,6 +55,13 @@ const admin = new Admin({
   sessions,
   schedules,
   scheduleRunner: new ScheduleRunner(schedules, { submit: () => ({ status: "started" }) }),
+  usage,
+  cleanup: new Cleanup({
+    sessions,
+    busyConversations: () => queue.conversations(),
+    deleteThread: async (id) => void deletedThreads.push(id),
+    workspace: mkdtempSync(join(tmpdir(), "elseagent-mcp-")),
+  }),
   ensureChannel: async (ref) => {
     ensured.push(ref);
     if (ref === "#secret") throw new Error("I can't post in #secret; invite me there first");
@@ -95,6 +114,7 @@ describe("elseagent MCP server", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "cancel_turn",
+      "cleanup",
       "forget_session",
       "list_queue",
       "list_sessions",
@@ -105,6 +125,7 @@ describe("elseagent MCP server", () => {
       "schedule_run_now",
       "status",
       "thread_follow",
+      "usage",
     ]);
     await client.close();
   });
@@ -215,6 +236,53 @@ describe("elseagent MCP server", () => {
     expect(sessions.followState("C1:2.0")?.muted).toBe(true);
     const dm = await callTool(client, "thread_follow", { follow: false, conversation: "D1" });
     expect(dm.isError).toBe(true);
+    await client.close();
+  });
+
+  test("usage sums the turns of a period, by day in the agent's time zone", async () => {
+    const turn = (at: string, user: string, input: number, output: number) =>
+      usage.record({
+        at: Date.parse(at),
+        conversationKey: "C1:1.0",
+        channel: "C1",
+        user,
+        scheduleId: null,
+        threadId: "t",
+        inputTokens: input,
+        cachedInputTokens: 0,
+        outputTokens: output,
+        reasoningOutputTokens: 0,
+        durationMs: 4000,
+      });
+    turn("2026-11-10T10:00:00Z", "U1", 100, 10);
+    turn("2026-11-10T23:00:00Z", "U2", 200, 20);
+    turn("2026-11-11T08:00:00Z", "U1", 300, 30);
+    const client = await connect(1);
+    const res = await callTool(client, "usage", {
+      since: "2026-11-10",
+      until: "2026-11-11",
+      groupBy: "day",
+    });
+    expect(res.json()).toMatchObject({
+      timezone: "UTC",
+      turns: 3,
+      inputTokens: 600,
+      totalTokens: 660,
+      averageTurnSeconds: 4,
+      groups: [
+        { day: "2026-11-10", turns: 2, totalTokens: 330 },
+        { day: "2026-11-11", turns: 1, totalTokens: 330 },
+      ],
+    });
+    expect((await callTool(client, "usage", { since: "nope" })).isError).toBe(true);
+    await client.close();
+  });
+
+  test("cleanup counts on a dry run", async () => {
+    const client = await connect(1);
+    const res = (await callTool(client, "cleanup", { dryRun: true })).json();
+    expect(res).toMatchObject({ dryRun: true, olderThanDays: 30, sessions: 0, codexThreads: 0 });
+    expect(deletedThreads).toEqual([]);
     await client.close();
   });
 });

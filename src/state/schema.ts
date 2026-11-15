@@ -87,3 +87,40 @@ export const schedules = sqliteTable(
   },
   (t) => [index("schedules_next_run").on(t.nextRunAt)],
 );
+
+/** Token usage of each completed Codex turn, for usage reports. Kept when sessions are deleted. */
+export const usage = sqliteTable(
+  "usage",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** Unix epoch ms the turn ended. */
+    at: integer("at").notNull(),
+    conversationKey: text("conversation_key").notNull(),
+    channel: text("channel").notNull(),
+    /** Who asked; empty for a scheduled run. */
+    user: text("user").notNull(),
+    scheduleId: integer("schedule_id"),
+    threadId: text("thread_id"),
+    inputTokens: integer("input_tokens").notNull(),
+    cachedInputTokens: integer("cached_input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    reasoningOutputTokens: integer("reasoning_output_tokens").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => [index("usage_at").on(t.at)],
+);
+
+/**
+ * Codex threads the agent created and when each was last used, including ones no conversation
+ * maps to any more (after `/new`), so cleanup can delete them from Codex's own storage.
+ */
+export const codexThreads = sqliteTable(
+  "codex_threads",
+  {
+    threadId: text("thread_id").primaryKey(),
+    conversationKey: text("conversation_key").notNull(),
+    /** Unix epoch ms. */
+    lastUsedAt: integer("last_used_at").notNull(),
+  },
+  (t) => [index("codex_threads_last_used").on(t.lastUsedAt)],
+);
