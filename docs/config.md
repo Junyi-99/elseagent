@@ -66,7 +66,7 @@ Codex always runs in agent mode: no approval prompts, allowed outside git reposi
 ## `channels.slack`
 
 Each agent is its own Slack app, so its name and avatar are set in Slack, not here. See
-[Slack setup](../README.md#slack-setup-one-app-per-agent).
+[Slack setup](slack.md).
 
 | Option                    | Type            | Default      | Description                                                                                                                                                                                                  |
 | ------------------------- | --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -78,7 +78,7 @@ Each agent is its own Slack app, so its name and avatar are set in Slack, not he
 
 A Telegram bot that talks to its users in private chats. Create it with
 [@BotFather](https://t.me/BotFather) and turn on its threaded mode there, so each topic of a chat
-is its own conversation; see [Telegram setup](../README.md#telegram-setup).
+is its own conversation; see [Telegram setup](telegram.md).
 
 | Option                           | Type            | Default      | Description                                                                                                                                                                                                                           |
 | -------------------------------- | --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
