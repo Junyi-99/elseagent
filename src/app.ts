@@ -11,6 +11,7 @@ import { type Channel, conversationKey, type MessageHandler } from "./channels/t
 import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
 import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
 import { type Config, ConfigError } from "./config/index.ts";
+import { setupIntegrations, writeIntegrationFiles } from "./integrations.ts";
 import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
 import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "./state/index.ts";
 
@@ -30,8 +31,11 @@ export async function startApp(
 ): Promise<void> {
   const { workspace } = config;
   const workspaceState = await ensureWorkspace(workspace, dryRun);
-  // The config's `env:` applies to this process and everything it starts (Codex, its tools).
-  Object.assign(process.env, config.env);
+  // Integrations become the variables their tools read (GH_TOKEN…), for this process and
+  // everything it starts (Codex, its commands). Codex itself reads CODEX_API_KEY.
+  const integrations = setupIntegrations(config.integrations, config.stateDir);
+  Object.assign(process.env, integrations.env);
+  if (config.codex.apiKey) process.env.CODEX_API_KEY = config.codex.apiKey;
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
   const codexPath = resolveCodexPath(config.codex);
   const threadOptions = buildThreadOptions(config.codex, workspace);
@@ -59,7 +63,7 @@ export async function startApp(
         .filter(Boolean)
         .join(", "),
     ],
-    ["env", Object.keys(config.env).join(", ") || "(none)"],
+    ["integrations", integrations.names.join(", ") || "(none)"],
     [
       "limits",
       `${maxConcurrent} concurrent, queue ${maxQueue}, ` +
@@ -75,6 +79,7 @@ export async function startApp(
     return;
   }
 
+  await writeIntegrationFiles(integrations.files);
   // Without CODEX_API_KEY or a saved login, log a device code and wait for someone to sign in.
   await ensureCodexLogin({ codexPath });
 
@@ -106,7 +111,8 @@ export async function startApp(
           prompt,
           channelInstructions: channels.for(message.channel).instructions,
           mcp: mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
-          shellEnv: config.env,
+          toolInstructions: integrations.instructions,
+          shellEnv: integrations.env,
         }),
       sessions,
       threadOptions,

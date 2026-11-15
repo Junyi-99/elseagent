@@ -65,15 +65,17 @@ describe("buildThreadOptions", () => {
 });
 
 describe("buildCodexOptions", () => {
-  test("sends the agent instructions, then the channel's, then the agent prompt", () => {
+  test("sends the agent instructions, then the channel's, the tools, then the agent prompt", () => {
     const opts = buildCodexOptions({
       codexPath: "/bin/codex",
       channelInstructions: "This is Telegram.",
+      toolInstructions: "gh is signed in.",
       prompt: "You are a reviewer.",
     });
     expect(opts.codexPathOverride).toBe("/bin/codex");
     expect(opts.config?.developer_instructions).toBe(
-      `${AGENT_INSTRUCTIONS}\n\n# This chat\n\nThis is Telegram.\n\n# Your role\n\nYou are a reviewer.`,
+      `${AGENT_INSTRUCTIONS}\n\n# This chat\n\nThis is Telegram.\n\n# Tools\n\ngh is signed in.` +
+        "\n\n# Your role\n\nYou are a reviewer.",
     );
   });
 
@@ -114,7 +116,7 @@ test("ChatGPT apps and Codex plugins are always off", () => {
   expect(opts.config?.features).toEqual({ plugins: false, apps: false });
 });
 
-describe("config env", () => {
+describe("integration variables", () => {
   test("is set explicitly in the environment of the commands Codex runs", () => {
     const opts = buildCodexOptions({
       codexPath: "/bin/codex",

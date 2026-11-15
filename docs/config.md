@@ -6,7 +6,8 @@ same as [`config.example.yaml`](../config.example.yaml).
 
 Every option below is optional unless marked **required**. Leave out what you don't need; omitted
 options use their default. A missing or empty section behaves like an empty one. The agent's
-own options are at the top level; `codex`, `channels` and `env` are sections.
+own options are at the top level; `codex`, `channels` and `integrations` are sections. Unknown
+top-level keys are an error.
 
 `channels` is where people talk to the agent: `channels.slack`, `channels.telegram`, or both
 (one agent then answers on both, sharing its queue and limits). Each is turned on by its
@@ -53,8 +54,9 @@ How this agent behaves, where it works, and how much work it takes on at once.
 
 Codex always runs in agent mode: no approval prompts, allowed outside git repositories, and
 Codex's `workspace-write` sandbox unless `codex.sandboxMode` says otherwise (the Docker images
-turn it off: the container is the sandbox). Everything not listed here uses the Codex defaults, including authentication
-(`CODEX_API_KEY` in `env:`, a saved `codex login`, or a device-code login started at launch).
+turn it off: the container is the sandbox). Everything not listed here uses the Codex defaults.
+Codex signs in with `codex.apiKey`, else a saved `codex login`, else a device-code login started
+at launch (the link and code are printed to the log).
 
 | Option                  | Type   | Default           | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ----------------------- | ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,6 +64,7 @@ turn it off: the container is the sandbox). Everything not listed here uses the 
 | `codex.model`           | string | Codex default     | Force a model for every conversation.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `codex.reasoningEffort` | string | Codex default     | Force the reasoning effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` or `persistent`.                                                                                                                                                                                                                                                                                                                                                                  |
 | `codex.sandboxMode`     | string | `workspace-write` | `workspace-write`: Codex's own sandbox lets commands write only in the workspace, without network; safe on your own machine. `danger-full-access`: no Codex sandbox, so the agent can use the network, install packages and write anywhere; for Docker/Kubernetes, where the container is the sandbox. When the config leaves it out, the `ELSEAGENT_SANDBOX_MODE` environment variable sets it; the Docker images set `danger-full-access` (see [docker.md](docker.md)). |
+| `codex.apiKey`          | string | none              | OpenAI API key for Codex (passed as `CODEX_API_KEY`). Without it, Codex uses a saved `codex login`, or elseagent starts a device-code login.                                                                                                                                                                                                                                                                                                                              |
 
 ## `channels.slack`
 
@@ -85,24 +88,29 @@ is its own conversation; see [Telegram setup](telegram.md).
 | `channels.telegram.botToken`     | string          | **required** | The bot token from @BotFather (`123456789:AA...`). Quote it in YAML.                                                                                                                                                                  |
 | `channels.telegram.allowedUsers` | list of numbers | none         | Telegram user IDs allowed to use the agent. Anyone else gets a refusal with their ID. Send `/start` to the bot to see your ID, add it here and restart the agent. Empty means nobody can use it yet. Groups and channels are ignored. |
 
-## `env`
+## `integrations`
 
-Environment variables for the agent, so one config file holds everything: credentials and
-settings for Codex and the tools it uses. Every variable listed here is available to elseagent,
-to Codex, and to every command Codex runs (`gh`, `git`, `wrangler`, `kubectl`…).
-
-They are handed to Codex's commands explicitly (Codex's `shell_environment_policy.set`), so
-they reach `gh`, `wrangler` and the rest regardless of Codex's own environment filtering.
-Values are strings; numbers and booleans are converted.
+Credentials for the tools the agent uses, one section per tool. elseagent turns each into the
+variables the tool reads and gives them to Codex and every command it runs, and tells Codex which
+tools are signed in. Leave out what you don't use.
 
 ```yaml
-env:
-  CODEX_API_KEY: sk-... # Codex; without it: a saved `codex login`, else a device code is logged
-  GH_TOKEN: ghp_... # gh and git on github.com
-  CLOUDFLARE_API_TOKEN: ... # wrangler
-  CLOUDFLARE_ACCOUNT_ID: ...
-  KUBECONFIG: /etc/elseagent/kubeconfig # kubectl/helm (a mounted file)
+integrations:
+  github:
+    token: github_pat_...
+  cloudflare:
+    apiToken: ...
+    accountId: ...
+  kubernetes:
+    kubeconfig: ~/.kube/config # a path, or the kubeconfig itself (multi-line)
 ```
 
-The config file then contains secrets: keep it readable only by the agent (in Kubernetes, store
-it as a Secret).
+| Option                               | Type   | Default      | Description                                                                                                                                                                                            |
+| ------------------------------------ | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `integrations.github.token`          | string | **required** | A GitHub token (fine-grained or classic). Sets `GH_TOKEN`: `gh` is signed in, and in the Docker images so is `git` over HTTPS for github.com.                                                          |
+| `integrations.cloudflare.apiToken`   | string | **required** | A Cloudflare API token. Sets `CLOUDFLARE_API_TOKEN` for `wrangler`.                                                                                                                                    |
+| `integrations.cloudflare.accountId`  | string | none         | Sets `CLOUDFLARE_ACCOUNT_ID`, for tokens that can access several accounts.                                                                                                                             |
+| `integrations.kubernetes.kubeconfig` | string | **required** | A path to a kubeconfig file (`~` expanded, relative to the config file), or the kubeconfig's YAML itself, which is written to `<stateDir>/kubeconfig` (readable only by the agent). Sets `KUBECONFIG`. |
+
+**required** means required once the section is there. The config file then holds secrets: keep
+it readable only by the agent.

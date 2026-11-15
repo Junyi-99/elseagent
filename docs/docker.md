@@ -21,7 +21,7 @@ about 4.2 GB (`base`) and 6.5 GB (`full`). Tool versions are pinned as `ARG`s at
 | Need                                    | Tools                                                                                                                                                                                                                 |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Basics                                  | `curl`, `wget`, `aria2c`, `jq`, `yq`, `rg`, `fd`, `zip`/`unzip`/`7z`, `tmux`, `bc`, `envsubst`, `shellcheck`, `lsof`, `strace`, `sqlite3`, `ssh`, `sudo`                                                              |
-| 1. GitHub                               | `git`, `git-lfs`, `gh`; with `GH_TOKEN` set, `git` over HTTPS is authenticated through `gh`                                                                                                                           |
+| 1. GitHub                               | `git`, `git-lfs`, `gh`; with `integrations.github`, `git` over HTTPS is authenticated through `gh`                                                                                                                    |
 | 2. Code and dependencies                | `gcc`/`g++`, `cmake`, `ninja`, `gdb`; `python3`, `uv`; `go`; `node`, `npm`, `pnpm`/`yarn` (corepack), `bun`                                                                                                           |
 | 3. Cloud                                | `kubectl`, `helm`, `wrangler`, `cloudflared`                                                                                                                                                                          |
 | 4. Images                               | ImageMagick (`magick`), `rsvg-convert`, `cwebp`, `optipng`, `jpegoptim`, `exiftool`, Pillow                                                                                                                           |
@@ -35,7 +35,8 @@ Python libraries live in the `/opt/tools` virtualenv, which is first on `PATH`, 
 ## Configuration in a container
 
 Everything an agent needs is in one file. Mount it at `/etc/elseagent/config.yaml` (the image's
-default command reads it) and put credentials under `env:` (see [config.md](config.md#env)).
+default command reads it) and put credentials under `integrations` (see
+[config.md](config.md#integrations)).
 Codex's own sandbox is off in the images (`ELSEAGENT_SANDBOX_MODE=danger-full-access`): the
 container is the sandbox.
 
@@ -45,15 +46,16 @@ channels:
     botToken: xoxb-...
     appToken: xapp-...
 
-env:
-  CODEX_API_KEY: sk-... # Codex; optional, see below
-  GH_TOKEN: ghp_... # gh and git on github.com
-  CLOUDFLARE_API_TOKEN: ... # wrangler
-  CLOUDFLARE_ACCOUNT_ID: ...
-  KUBECONFIG: /etc/elseagent/kubeconfig # kubectl/helm; in-cluster a ServiceAccount also works
+integrations:
+  github:
+    token: github_pat_... # gh, and git over HTTPS
+  cloudflare:
+    apiToken: ... # wrangler
+  kubernetes:
+    kubeconfig: /etc/elseagent/kubeconfig # kubectl/helm; in-cluster a ServiceAccount also works
 ```
 
-**Codex sign-in.** With `CODEX_API_KEY`, Codex uses the key. Without it, elseagent checks for
+**Codex sign-in.** With `codex.apiKey`, Codex uses the key. Without it, elseagent checks for
 a saved login (`codex login`, stored in `/home/elseagent/.codex`); if there is none it starts Codex's
 device-code login before connecting to Slack or Telegram and prints the link and a one-time code to the
 log (`docker logs` / `kubectl logs`). Open the link, enter the code, and the agent continues;

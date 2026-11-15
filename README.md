@@ -37,7 +37,7 @@ Then mention `@elseagent` in a channel, or send it a DM.
 
 ## More
 
-- [Configuration](docs/config.md): the agent's role, limits, `env` for credentials, every option
+- [Configuration](docs/config.md): the agent's role, limits, `integrations` (GitHub, Cloudflare, Kubernetes), every option
 - [Telegram](docs/telegram.md): use a Telegram bot instead of (or with) Slack
 - [Usage](docs/usage.md): conversations, agent tools, scheduled tasks, running without Docker
 - [Docker and Kubernetes](docs/docker.md)

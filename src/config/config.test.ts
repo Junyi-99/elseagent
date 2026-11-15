@@ -151,20 +151,34 @@ describe("loadConfig", () => {
     expect((await loadConfig(rel)).stateDir).toBe(join(dir, "state"));
   });
 
-  test("env: variables as strings, empty when missing, names validated", async () => {
+  test("integrations: optional sections; a kubeconfig path resolves, inline YAML is kept", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
-    expect((await loadConfig(await writeConfig("env-none.yaml", base))).env).toEqual({});
+    expect((await loadConfig(await writeConfig("int-none.yaml", base))).integrations).toEqual({});
     const path = await writeConfig(
-      "env.yaml",
-      `${base}env:\n  GH_TOKEN: ghp_x\n  PORT: 8080\n  DEBUG: true\n`,
+      "int.yaml",
+      `${base}integrations:\n  github:\n    token: ghp_x\n  cloudflare:\n    apiToken: cf\n` +
+        "  kubernetes:\n    kubeconfig: ./kube.yaml\n",
     );
-    expect((await loadConfig(path)).env).toEqual({
-      GH_TOKEN: "ghp_x",
-      PORT: "8080",
-      DEBUG: "true",
+    expect((await loadConfig(path)).integrations).toEqual({
+      github: { token: "ghp_x" },
+      cloudflare: { apiToken: "cf" },
+      kubernetes: { kubeconfig: join(dirname(path), "kube.yaml") },
     });
-    const bad = await writeConfig("env-bad.yaml", `${base}env:\n  "NOT-OK": x\n`);
-    expect(loadConfig(bad)).rejects.toThrow("env names must be valid variable names");
+    const inline = await writeConfig(
+      "int-inline.yaml",
+      `${base}integrations:\n  kubernetes:\n    kubeconfig: |\n      apiVersion: v1\n      kind: Config\n`,
+    );
+    expect((await loadConfig(inline)).integrations.kubernetes?.kubeconfig).toBe(
+      "apiVersion: v1\nkind: Config",
+    );
+    const missing = await writeConfig("int-bad.yaml", `${base}integrations:\n  github: {}\n`);
+    expect(loadConfig(missing)).rejects.toThrow("integrations.github.token is required");
+  });
+
+  test("unknown top-level keys are rejected (e.g. the old env: section)", async () => {
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
+    const old = await writeConfig("old-env.yaml", `${base}env:\n  GH_TOKEN: x\n`);
+    expect(loadConfig(old)).rejects.toThrow('Unrecognized key: "env"');
   });
 
   test("codex section is optional", async () => {

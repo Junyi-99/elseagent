@@ -45,9 +45,11 @@ export interface CodexClientOptions {
   prompt?: string;
   /** Instructions of the channel the conversation is in (`Channel.instructions`). */
   channelInstructions?: string;
+  /** What Codex is told about the tools that have credentials (from `integrations`). */
+  toolInstructions?: string;
   /** Registers the elseagent MCP server for this turn. */
   mcp?: McpRegistration;
-  /** Variables from the config's `env:`, made available to the commands Codex runs. */
+  /** Variables from the config's `integrations` (GH_TOKEN…), for the commands Codex runs. */
   shellEnv?: Record<string, string>;
 }
 
@@ -61,11 +63,16 @@ export function buildCodexOptions({
   codexPath,
   prompt,
   channelInstructions,
+  toolInstructions,
   mcp,
   shellEnv = {},
 }: CodexClientOptions): CodexOptions {
   const config: NonNullable<CodexOptions["config"]> = {
-    developer_instructions: buildInstructions({ channel: channelInstructions, prompt }),
+    developer_instructions: buildInstructions({
+      channel: channelInstructions,
+      tools: toolInstructions,
+      prompt,
+    }),
     // No ChatGPT apps (Gmail, Drive… connected to the Codex login's account) and no Codex
     // plugins: the agent only gets the tools we give it. MCP servers configured here, like
     // elseagent's own, are not affected.

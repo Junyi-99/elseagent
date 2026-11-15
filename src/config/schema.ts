@@ -83,6 +83,9 @@ const codexSchema = z.object({
   // danger-full-access: no Codex sandbox; for containers, which are the sandbox. Without a value
   // here, ELSEAGENT_SANDBOX_MODE sets it (the Docker images set danger-full-access).
   sandboxMode: z.enum(SANDBOX_MODES).optional(),
+  // OpenAI API key for Codex (CODEX_API_KEY). Without it: a saved `codex login`, else a
+  // device-code login at startup.
+  apiKey: z.string().trim().min(1).optional(),
 });
 
 const slackSchema = z.object(
@@ -111,33 +114,37 @@ const telegramSchema = z.object(
   { error: "channels.telegram must be a section with botToken" },
 );
 
-/** Every config section; docs/config.md must document each of their fields. */
-export const configSections = {
-  "": agentSchema, // top level
-  codex: codexSchema,
-  "channels.slack": slackSchema,
-  "channels.telegram": telegramSchema,
-};
-
-/**
- * Environment variables for the agent: credentials and settings for the tools Codex uses
- * (CODEX_API_KEY, GH_TOKEN, CLOUDFLARE_API_TOKEN, KUBECONFIG…), so one config file is enough.
- */
-const envSchema = z.record(
-  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
-  // YAML may read values like 8080 or true as numbers/booleans; variables are strings.
-  z.union([z.string(), z.number(), z.boolean()]).transform(String),
-  {
-    error: (issue) =>
-      issue.code === "invalid_key"
-        ? "env names must be valid variable names (letters, digits and _)"
-        : undefined,
-  },
-);
-
 /** A section that may be left out; an empty one (`slack:` alone, parsed as null) too. */
 const optionalSection = <T extends z.ZodType>(schema: T) =>
   z.preprocess((v) => v ?? undefined, schema.optional());
+
+// Credentials for the tools Codex uses, one section per tool. Each is turned into the variables
+// the tool reads (see src/integrations.ts).
+const githubSchema = z.object(
+  { token: requiredString("integrations.github.token") },
+  { error: "integrations.github must be a section with token" },
+);
+const cloudflareSchema = z.object(
+  {
+    apiToken: requiredString("integrations.cloudflare.apiToken"),
+    accountId: z.string().trim().min(1).optional(),
+  },
+  { error: "integrations.cloudflare must be a section with apiToken" },
+);
+const kubernetesSchema = z.object(
+  // A path to a kubeconfig file, or the kubeconfig itself (multi-line YAML).
+  { kubeconfig: requiredString("integrations.kubernetes.kubeconfig") },
+  { error: "integrations.kubernetes must be a section with kubeconfig" },
+);
+
+const integrationsSchema = z.preprocess(
+  (v) => v ?? {},
+  z.object({
+    github: optionalSection(githubSchema),
+    cloudflare: optionalSection(cloudflareSchema),
+    kubernetes: optionalSection(kubernetesSchema),
+  }),
+);
 
 const NO_CHANNEL = "configure at least one channel: channels.slack or channels.telegram (or both)";
 
@@ -155,15 +162,30 @@ const channelsSchema = z.preprocess(
     .refine((c) => c.slack || c.telegram, { error: NO_CHANNEL }),
 );
 
-export const configSchema = agentSchema.extend({
-  // Optional sections may be missing or empty (`codex:` with nothing under it parses as null).
-  codex: z.preprocess((v) => v ?? {}, codexSchema),
-  channels: channelsSchema,
-  env: z.preprocess((v) => v ?? {}, envSchema),
-});
+export const configSchema = agentSchema
+  .extend({
+    // Optional sections may be missing or empty (`codex:` with nothing under it parses as null).
+    codex: z.preprocess((v) => v ?? {}, codexSchema),
+    channels: channelsSchema,
+    integrations: integrationsSchema,
+  })
+  // Unknown top-level keys are mistakes (a typo, or `env:`/`agent:` from older configs).
+  .strict();
 
 export type Config = z.infer<typeof configSchema>;
 export type ChannelsConfig = Config["channels"];
 export type SlackConfig = NonNullable<ChannelsConfig["slack"]>;
 export type TelegramConfig = NonNullable<ChannelsConfig["telegram"]>;
 export type CodexConfig = Config["codex"];
+export type IntegrationsConfig = Config["integrations"];
+
+/** Every config section; docs/config.md must document each of their fields. */
+export const configSections = {
+  "": agentSchema, // top level
+  codex: codexSchema,
+  "channels.slack": slackSchema,
+  "channels.telegram": telegramSchema,
+  "integrations.github": githubSchema,
+  "integrations.cloudflare": cloudflareSchema,
+  "integrations.kubernetes": kubernetesSchema,
+};

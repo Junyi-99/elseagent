@@ -1,6 +1,6 @@
 # elseagent on Kubernetes: one agent, one pod, one disk.
 #
-#   1. Put your Slack tokens (and any credentials under env:) in the Secret below.
+#   1. Put your Slack tokens (and any credentials under integrations:) in the Secret below.
 #   2. kubectl apply -f k8s/elseagent.yaml
 #   3. kubectl logs -f elseagent-0   # first start: open the link, enter the code to sign in to Codex
 #
@@ -16,8 +16,9 @@ stringData:
       slack:
         botToken: xoxb-REPLACE-ME
         appToken: xapp-REPLACE-ME
-    # env:
-    #   GH_TOKEN: ghp_...
+    # integrations:
+    #   github:
+    #     token: github_pat_...
 ---
 # Required by the StatefulSet (serviceName); the agent serves nothing over the network.
 apiVersion: v1

@@ -14,7 +14,7 @@ The agent works in `workspace` from the config (default `~/workspace`, created i
 Codex runs in agent mode: no approval prompts, allowed outside git repositories, and in Codex's
 `workspace-write` sandbox, so on your machine commands can only write in the workspace. The
 Docker images turn the sandbox off, since the container is the sandbox. The `codex` CLI must be
-installed (on `PATH`, or set `codex.path`). Without `CODEX_API_KEY` or a saved `codex login`,
+installed (on `PATH`, or set `codex.path`). Without `codex.apiKey` or a saved `codex login`,
 the agent starts a device-code login and prints the link and code to its log.
 
 ## Conversations
