@@ -121,34 +121,6 @@ const telegramSchema = z.object(
 const optionalSection = <T extends z.ZodType>(schema: T) =>
   z.preprocess((v) => v ?? undefined, schema.optional());
 
-// Credentials for the tools Codex uses, one section per tool. Each is turned into the variables
-// the tool reads (see src/integrations.ts).
-const githubSchema = z.object(
-  { token: requiredString("integrations.github.token") },
-  { error: "integrations.github must be a section with token" },
-);
-const cloudflareSchema = z.object(
-  {
-    apiToken: requiredString("integrations.cloudflare.apiToken"),
-    accountId: z.string().trim().min(1).optional(),
-  },
-  { error: "integrations.cloudflare must be a section with apiToken" },
-);
-const kubernetesSchema = z.object(
-  // A path to a kubeconfig file, or the kubeconfig itself (multi-line YAML).
-  { kubeconfig: requiredString("integrations.kubernetes.kubeconfig") },
-  { error: "integrations.kubernetes must be a section with kubeconfig" },
-);
-
-const integrationsSchema = z.preprocess(
-  (v) => v ?? {},
-  z.object({
-    github: optionalSection(githubSchema),
-    cloudflare: optionalSection(cloudflareSchema),
-    kubernetes: optionalSection(kubernetesSchema),
-  }),
-);
-
 const NO_CHANNEL = "configure at least one channel: channels.slack or channels.telegram (or both)";
 
 // Where people talk to the agent: each channel is turned on by its section. At least one.
@@ -170,9 +142,9 @@ export const configSchema = agentSchema
     // Optional sections may be missing or empty (`codex:` with nothing under it parses as null).
     codex: z.preprocess((v) => v ?? {}, codexSchema),
     channels: channelsSchema,
-    integrations: integrationsSchema,
   })
-  // Unknown top-level keys are mistakes (a typo, or `env:`/`agent:` from older configs).
+  // Unknown top-level keys are mistakes (a typo, or `env:`/`agent:`/`integrations:` from
+  // older configs).
   .strict();
 
 export type Config = z.infer<typeof configSchema>;
@@ -180,7 +152,6 @@ export type ChannelsConfig = Config["channels"];
 export type SlackConfig = NonNullable<ChannelsConfig["slack"]>;
 export type TelegramConfig = NonNullable<ChannelsConfig["telegram"]>;
 export type CodexConfig = Config["codex"];
-export type IntegrationsConfig = Config["integrations"];
 
 /** Every config section; docs/config.md must document each of their fields. */
 export const configSections = {
@@ -188,7 +159,4 @@ export const configSections = {
   codex: codexSchema,
   "channels.slack": slackSchema,
   "channels.telegram": telegramSchema,
-  "integrations.github": githubSchema,
-  "integrations.cloudflare": cloudflareSchema,
-  "integrations.kubernetes": kubernetesSchema,
 };

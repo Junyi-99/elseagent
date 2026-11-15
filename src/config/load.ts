@@ -50,11 +50,6 @@ export async function loadConfig(
   config.codex.sandboxMode ??= sandboxModeFromEnv(env);
   config.workspace = resolve(baseDir, expandHome(config.workspace));
   config.stateDir = resolve(baseDir, expandHome(config.stateDir));
-  // A kubeconfig given as a path (not inline YAML) resolves like the other paths.
-  const kube = config.integrations.kubernetes;
-  if (kube && !kube.kubeconfig.includes("\n")) {
-    kube.kubeconfig = resolve(baseDir, expandHome(kube.kubeconfig));
-  }
   // A bare command name (e.g. "codex") is looked up on PATH, so only resolve real paths.
   if (config.codex.path?.includes("/")) {
     config.codex.path = resolve(baseDir, expandHome(config.codex.path));

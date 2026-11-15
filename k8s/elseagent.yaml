@@ -1,10 +1,11 @@
 # elseagent on Kubernetes: one agent, one pod, one disk.
 #
-#   1. Put your Slack tokens (and any credentials under integrations:) in the Secret below.
+#   1. Put your Slack tokens in the `elseagent` Secret (the agent's config), and credentials
+#      for the tools it runs (GH_TOKEN…) in `elseagent-env` (environment variables).
 #   2. kubectl apply -f k8s/elseagent.yaml
 #   3. kubectl logs -f elseagent-0   # first start: open the link, enter the code to sign in to Codex
 #
-# After changing the Secret: kubectl rollout restart statefulset/elseagent
+# After changing a Secret: kubectl rollout restart statefulset/elseagent
 # Details: docs/docker.md#kubernetes. For another agent, copy this file and rename `elseagent`.
 apiVersion: v1
 kind: Secret
@@ -16,9 +17,16 @@ stringData:
       slack:
         botToken: xoxb-REPLACE-ME
         appToken: xapp-REPLACE-ME
-    # integrations:
-    #   github:
-    #     token: github_pat_...
+---
+# Credentials for the tools the agent runs, as environment variables (see .env.example).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elseagent-env
+stringData:
+  # GH_TOKEN: github_pat_...          # gh, and git over HTTPS for github.com
+  # CLOUDFLARE_API_TOKEN: ...         # wrangler
+  # CLOUDFLARE_ACCOUNT_ID: ...
 ---
 # Required by the StatefulSet (serviceName); the agent serves nothing over the network.
 apiVersion: v1
@@ -54,6 +62,10 @@ spec:
         - name: elseagent
           image: ghcr.io/elsescape/elseagent-full:latest
           imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: elseagent-env
+                optional: true
           volumeMounts:
             - name: config
               mountPath: /etc/elseagent

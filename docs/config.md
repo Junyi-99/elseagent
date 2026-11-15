@@ -6,8 +6,12 @@ same as [`config.example.yaml`](../config.example.yaml).
 
 Every option below is optional unless marked **required**. Leave out what you don't need; omitted
 options use their default. A missing or empty section behaves like an empty one. The agent's
-own options are at the top level; `codex`, `channels` and `integrations` are sections. Unknown
-top-level keys are an error.
+own options are at the top level; `codex` and `channels` are sections. Unknown top-level keys
+are an error.
+
+Credentials for the tools the agent runs (`gh`, `wrangler`, `kubectl`…) are not part of this
+file: they are environment variables of the process (in Docker, of the container; see
+[docker.md](docker.md#configuration-in-a-container)).
 
 `channels` is where people talk to the agent: `channels.slack`, `channels.telegram`, or both
 (one agent then answers on both, sharing its queue and limits). Each is turned on by its
@@ -89,29 +93,4 @@ is its own conversation; see [Telegram setup](telegram.md).
 | `channels.telegram.botToken`     | string          | **required** | The bot token from @BotFather (`123456789:AA...`). Quote it in YAML.                                                                                                                                                                  |
 | `channels.telegram.allowedUsers` | list of numbers | none         | Telegram user IDs allowed to use the agent. Anyone else gets a refusal with their ID. Send `/start` to the bot to see your ID, add it here and restart the agent. Empty means nobody can use it yet. Groups and channels are ignored. |
 
-## `integrations`
-
-Credentials for the tools the agent uses, one section per tool. elseagent turns each into the
-variables the tool reads and gives them to Codex and every command it runs, and tells Codex which
-tools are signed in. Leave out what you don't use.
-
-```yaml
-integrations:
-  github:
-    token: github_pat_...
-  cloudflare:
-    apiToken: ...
-    accountId: ...
-  kubernetes:
-    kubeconfig: ~/.kube/config # a path, or the kubeconfig itself (multi-line)
-```
-
-| Option                               | Type   | Default      | Description                                                                                                                                                                                            |
-| ------------------------------------ | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `integrations.github.token`          | string | **required** | A GitHub token (fine-grained or classic). Sets `GH_TOKEN`: `gh` is signed in, and in the Docker images so is `git` over HTTPS for github.com.                                                          |
-| `integrations.cloudflare.apiToken`   | string | **required** | A Cloudflare API token. Sets `CLOUDFLARE_API_TOKEN` for `wrangler`.                                                                                                                                    |
-| `integrations.cloudflare.accountId`  | string | none         | Sets `CLOUDFLARE_ACCOUNT_ID`, for tokens that can access several accounts.                                                                                                                             |
-| `integrations.kubernetes.kubeconfig` | string | **required** | A path to a kubeconfig file (`~` expanded, relative to the config file), or the kubeconfig's YAML itself, which is written to `<stateDir>/kubeconfig` (readable only by the agent). Sets `KUBECONFIG`. |
-
-**required** means required once the section is there. The config file then holds secrets: keep
-it readable only by the agent.
+The config file holds the channel tokens: keep it readable only by the agent.

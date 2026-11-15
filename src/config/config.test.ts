@@ -156,34 +156,12 @@ describe("loadConfig", () => {
     expect((await loadConfig(rel)).stateDir).toBe(join(dir, "state"));
   });
 
-  test("integrations: optional sections; a kubeconfig path resolves, inline YAML is kept", async () => {
-    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
-    expect((await loadConfig(await writeConfig("int-none.yaml", base))).integrations).toEqual({});
-    const path = await writeConfig(
-      "int.yaml",
-      `${base}integrations:\n  github:\n    token: ghp_x\n  cloudflare:\n    apiToken: cf\n` +
-        "  kubernetes:\n    kubeconfig: ./kube.yaml\n",
-    );
-    expect((await loadConfig(path)).integrations).toEqual({
-      github: { token: "ghp_x" },
-      cloudflare: { apiToken: "cf" },
-      kubernetes: { kubeconfig: join(dirname(path), "kube.yaml") },
-    });
-    const inline = await writeConfig(
-      "int-inline.yaml",
-      `${base}integrations:\n  kubernetes:\n    kubeconfig: |\n      apiVersion: v1\n      kind: Config\n`,
-    );
-    expect((await loadConfig(inline)).integrations.kubernetes?.kubeconfig).toBe(
-      "apiVersion: v1\nkind: Config",
-    );
-    const missing = await writeConfig("int-bad.yaml", `${base}integrations:\n  github: {}\n`);
-    expect(loadConfig(missing)).rejects.toThrow("integrations.github.token is required");
-  });
-
-  test("unknown top-level keys are rejected (e.g. the old env: section)", async () => {
+  test("unknown top-level keys are rejected (e.g. old env:/integrations: sections)", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const old = await writeConfig("old-env.yaml", `${base}env:\n  GH_TOKEN: x\n`);
     expect(loadConfig(old)).rejects.toThrow('Unrecognized key: "env"');
+    const integ = await writeConfig("old-int.yaml", `${base}integrations:\n  github: {}\n`);
+    expect(loadConfig(integ)).rejects.toThrow('Unrecognized key: "integrations"');
   });
 
   test("codex section is optional", async () => {

@@ -4,8 +4,6 @@ import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 import { TOKEN_ENV, TURN_HEADER } from "./mcp/server.ts";
 
-type CodexConfigValue = NonNullable<CodexOptions["config"]>[string];
-
 /** Codex features turned off for every turn (same as `codex --disable plugins --disable apps`). */
 export const DISABLED_FEATURES = { plugins: false, apps: false } as const;
 
@@ -45,12 +43,8 @@ export interface CodexClientOptions {
   prompt?: string;
   /** Instructions of the channel the conversation is in (`Channel.instructions`). */
   channelInstructions?: string;
-  /** What Codex is told about the tools that have credentials (from `integrations`). */
-  toolInstructions?: string;
   /** Registers the elseagent MCP server for this turn. */
   mcp?: McpRegistration;
-  /** Variables from the config's `integrations` (GH_TOKEN…), for the commands Codex runs. */
-  shellEnv?: Record<string, string>;
 }
 
 /**
@@ -63,28 +57,19 @@ export function buildCodexOptions({
   codexPath,
   prompt,
   channelInstructions,
-  toolInstructions,
   mcp,
-  shellEnv = {},
 }: CodexClientOptions): CodexOptions {
   const config: NonNullable<CodexOptions["config"]> = {
-    developer_instructions: buildInstructions({
-      channel: channelInstructions,
-      tools: toolInstructions,
-      prompt,
-    }),
+    developer_instructions: buildInstructions({ channel: channelInstructions, prompt }),
     // No ChatGPT apps (Gmail, Drive… connected to the Codex login's account) and no Codex
     // plugins: the agent only gets the tools we give it. MCP servers configured here, like
     // elseagent's own, are not affected.
     features: DISABLED_FEATURES,
   };
-  // The commands Codex runs get the configured variables explicitly (`set`), whatever Codex's
-  // own default filtering of names like *TOKEN* is, and never the MCP token (`exclude`).
-  const policy: Record<string, CodexConfigValue> = {};
-  if (Object.keys(shellEnv).length > 0) policy.set = shellEnv;
-  if (mcp) policy.exclude = [TOKEN_ENV];
-  if (Object.keys(policy).length > 0) config.shell_environment_policy = policy;
+  // The commands Codex runs inherit this process's environment (tool credentials such as
+  // GH_TOKEN), but never the MCP token.
   if (!mcp) return { codexPathOverride: codexPath, config };
+  config.shell_environment_policy = { exclude: [TOKEN_ENV] };
   config.mcp_servers = {
     elseagent: {
       url: mcp.url,

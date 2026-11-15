@@ -10,7 +10,7 @@ it writes code, runs commands and can do tasks on a schedule. Telegram works too
 **1. Create the Slack app** from [`slack-app-manifest.yaml`](slack-app-manifest.yaml) and get its
 two tokens: [docs/slack.md](docs/slack.md).
 
-**2. Write `config.yaml`**:
+**2. Write `config.yaml`** next to [`compose.yaml`](compose.yaml):
 
 ```yaml
 channels:
@@ -19,14 +19,15 @@ channels:
     appToken: xapp-...
 ```
 
+Optionally copy [`.env.example`](.env.example) to `.env` to sign in the tools the agent uses
+(`GH_TOKEN` for GitHub, Cloudflare…), or sign in by hand later with
+`docker compose exec elseagent bash`.
+
 **3. Run it**:
 
 ```bash
-docker run -d --name elseagent --shm-size=1g \
-  -v "$PWD/config.yaml:/etc/elseagent/config.yaml:ro" \
-  -v elseagent-home:/home/elseagent \
-  ghcr.io/elsescape/elseagent-full:latest
-docker logs -f elseagent   # first time: open the link, enter the code to sign in to Codex
+docker compose up -d
+docker compose logs -f   # first time: open the link, enter the code to sign in to Codex
 ```
 
 Then mention `@elseagent` in a channel, or send it a DM.
@@ -37,8 +38,8 @@ Then mention `@elseagent` in a channel, or send it a DM.
 
 ## More
 
-- [Configuration](docs/config.md): the agent's role, limits, `integrations` (GitHub, Cloudflare, Kubernetes), every option
+- [Configuration](docs/config.md): the agent's role, limits, every option
 - [Telegram](docs/telegram.md): use a Telegram bot instead of (or with) Slack
 - [Usage](docs/usage.md): conversations, agent tools, scheduled tasks, running without Docker
-- [Docker and Kubernetes](docs/docker.md)
+- [Docker and Kubernetes](docs/docker.md): the images, tool credentials, volumes
 - [Development](docs/development.md)

@@ -1,7 +1,7 @@
 /**
  * Built-in developer instructions for every conversation, whatever the channel: how to behave as
  * a chat agent. The channel's own instructions (`Channel.instructions`) follow them, then the
- * tools with credentials (`integrations`), then the user's `prompt` (the agent's role).
+ * user's `prompt` (the agent's role).
  */
 export const AGENT_INSTRUCTIONS = `You are working as an agent in a chat. Each turn is a message addressed to you, written as "<@USER_ID>: text".
 
@@ -14,23 +14,19 @@ You also have the "elseagent" tools for this agent itself: its status (running t
 
 /**
  * The developer instructions for one conversation: the agent rules, the channel's own rules,
- * the tools that have credentials, then the agent's role if one is set.
+ * then the agent's role if one is set.
  */
 export function buildInstructions({
   channel,
-  tools,
   prompt,
 }: {
   /** Instructions of the channel the conversation is in. */
   channel?: string;
-  /** What the configured integrations set up (see src/integrations.ts). */
-  tools?: string;
   /** The agent's role (`prompt` in the config). */
   prompt?: string;
 }): string {
   const parts = [AGENT_INSTRUCTIONS];
   if (channel) parts.push(`# This chat\n\n${channel}`);
-  if (tools) parts.push(`# Tools\n\n${tools}`);
   if (prompt) parts.push(`# Your role\n\n${prompt}`);
   return parts.join("\n\n");
 }

@@ -8,3 +8,4 @@ config.yaml
 .elseagent*
 .vscode
 .idea
+.env

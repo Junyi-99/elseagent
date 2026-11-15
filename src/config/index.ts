@@ -7,7 +7,6 @@ export {
   configSchema,
   configSections,
   DEFAULT_CONFIG_PATH,
-  type IntegrationsConfig,
   PLACEHOLDER,
   type SlackConfig,
   type TelegramConfig,

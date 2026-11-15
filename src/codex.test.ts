@@ -65,17 +65,15 @@ describe("buildThreadOptions", () => {
 });
 
 describe("buildCodexOptions", () => {
-  test("sends the agent instructions, then the channel's, the tools, then the agent prompt", () => {
+  test("sends the agent instructions, then the channel's, then the agent prompt", () => {
     const opts = buildCodexOptions({
       codexPath: "/bin/codex",
       channelInstructions: "This is Telegram.",
-      toolInstructions: "gh is signed in.",
       prompt: "You are a reviewer.",
     });
     expect(opts.codexPathOverride).toBe("/bin/codex");
     expect(opts.config?.developer_instructions).toBe(
-      `${AGENT_INSTRUCTIONS}\n\n# This chat\n\nThis is Telegram.\n\n# Tools\n\ngh is signed in.` +
-        "\n\n# Your role\n\nYou are a reviewer.",
+      `${AGENT_INSTRUCTIONS}\n\n# This chat\n\nThis is Telegram.\n\n# Your role\n\nYou are a reviewer.`,
     );
   });
 
@@ -116,22 +114,17 @@ test("ChatGPT apps and Codex plugins are always off", () => {
   expect(opts.config?.features).toEqual({ plugins: false, apps: false });
 });
 
-describe("integration variables", () => {
-  test("is set explicitly in the environment of the commands Codex runs", () => {
+describe("commands' environment", () => {
+  test("inherits this process's environment, minus the MCP token", () => {
     const opts = buildCodexOptions({
       codexPath: "/bin/codex",
-      shellEnv: { GH_TOKEN: "ghp_x", CLOUDFLARE_API_TOKEN: "cf" },
       mcp: { url: "http://127.0.0.1:1/mcp", token: "secret", turnId: 1 },
     });
-    expect(opts.config?.shell_environment_policy).toEqual({
-      set: { GH_TOKEN: "ghp_x", CLOUDFLARE_API_TOKEN: "cf" },
-      // The MCP token is kept out of the commands' environment.
-      exclude: ["ELSEAGENT_MCP_TOKEN"],
-    });
-    expect(JSON.stringify(opts.config?.shell_environment_policy)).not.toContain("secret");
+    expect(opts.config?.shell_environment_policy).toEqual({ exclude: ["ELSEAGENT_MCP_TOKEN"] });
+    expect(opts.env?.PATH).toBe(process.env.PATH);
   });
 
-  test("leaves Codex's policy alone when there is nothing to set", () => {
+  test("leaves Codex's policy alone without the MCP server", () => {
     expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).not.toHaveProperty(
       "shell_environment_policy",
     );

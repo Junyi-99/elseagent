@@ -1,0 +1,21 @@
+# elseagent with Docker Compose (details: docs/docker.md).
+#
+#   1. config.yaml next to this file: the agent's config (Slack/Telegram tokens, prompt…).
+#   2. Optional: .env with credentials for the tools the agent runs (see .env.example).
+#   3. docker compose up -d && docker compose logs -f   # first start: sign in to Codex
+services:
+  elseagent:
+    image: ghcr.io/elsescape/elseagent-full:latest # or elseagent-base: command-line tools only
+    # build: { context: ., target: full }          # to build the image yourself instead
+    restart: unless-stopped
+    shm_size: 1g # Chromium needs more than the default 64 MB
+    stop_grace_period: 60s # lets running turns tell their threads before stopping
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./config.yaml:/etc/elseagent/config.yaml:ro
+      - home:/home/elseagent # workspace, Codex login and sessions, agent state
+
+volumes:
+  home:
