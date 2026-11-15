@@ -124,7 +124,7 @@ describe("createTelegramBot", () => {
     expect(received).toEqual([
       { channel: "tg:42", ts: "5", threadTs: "3", user: "42", text: "fix it", isDirect: true },
     ]);
-    expect(sent("setMyCommands")[0]?.commands).toHaveLength(2);
+    expect(sent("setMyCommands")[0]?.commands).toHaveLength(3);
   });
 
   test("/start answers with the user's ID, allowed or not", async () => {
@@ -158,6 +158,11 @@ describe("createTelegramBot", () => {
     expect(received).toEqual([
       { channel: "tg:42", ts: "", threadTs: "3", user: "42", text: "/new", isDirect: true },
     ]);
+  });
+
+  test("/stop becomes !stop", async () => {
+    const { received } = await run([userMessage("/stop")]);
+    expect(received.map((m) => [m.ts, m.text])).toEqual([["5", "!stop"]]);
   });
 
   test("a choice button: marks the pick and sends it as the user's message", async () => {

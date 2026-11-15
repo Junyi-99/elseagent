@@ -32,6 +32,8 @@ All options: [config.md](config.md#channelsslack).
 An app created from an older manifest lacks the file scopes: add `files:read` (read files
 people attach) and `files:write` (send files) under **OAuth & Permissions > Bot Token Scopes**,
 then reinstall the app. Without them the agent still works, but can't open or send files.
+Likewise the stop button needs the `agent_session_stopped` bot event (**Event Subscriptions >
+Subscribe to bot events**); without it Slack shows "Stop isn't available for this agent".
 
 ## In Slack
 
@@ -43,6 +45,8 @@ then reinstall the app. Without them the agent still works, but can't open or se
 - While Codex works, the bottom of the thread shows what it is doing ("is running `bun test`…").
 - Attach files or images to your message (or post them in the thread before mentioning the
   agent): it reads them. It can attach files to its replies too.
+- To stop what the agent is doing, click the stop button on "is working" (or send `!stop` in the
+  thread). Messages you sent meanwhile are still handled after it.
 - In a DM, the `/new` slash command starts the DM over with a new session. In channels, start a
   new thread instead.
 - Scheduled tasks post their result as a new message in a channel; reply in its thread to follow

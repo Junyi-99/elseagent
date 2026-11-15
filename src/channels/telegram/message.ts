@@ -123,8 +123,9 @@ export function startText(
     "You're all set: send me a message and I'll get to work.",
     topicsEnabled
       ? "Each topic (thread) in this chat is a separate conversation with its own session; " +
-        "start a new topic for something new. `/new` starts the current one over."
-      : "`/new` starts our conversation over with a new session.",
+        "start a new topic for something new. `/new` starts the current one over, " +
+        "`/stop` stops what I'm doing."
+      : "`/new` starts our conversation over with a new session; `/stop` stops what I'm doing.",
   ].join("\n");
 }
 

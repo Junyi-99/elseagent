@@ -76,6 +76,7 @@ const TYPING_REFRESH_MS = 4_000;
 
 const COMMANDS = [
   { command: "new", description: "Start this conversation over with a new session" },
+  { command: "stop", description: "Stop what the agent is doing in this conversation" },
   { command: "start", description: "Show your user ID and how to use this bot" },
 ];
 
@@ -333,10 +334,15 @@ export async function createTelegramBot(
       }, albumWaitMs);
       return;
     }
-    // `/new` goes through the queue without a message to react to, like Slack's slash command.
+    // `/new` goes through the queue without a message to react to, like Slack's slash command;
+    // `/stop` is `!stop`.
     await dispatch(
       onMessage,
-      command?.command === "new" ? { ...message, ts: "", text: "/new" } : message,
+      command?.command === "new"
+        ? { ...message, ts: "", text: "/new" }
+        : command?.command === "stop"
+          ? { ...message, text: "!stop" }
+          : message,
     );
   };
 

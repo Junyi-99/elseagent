@@ -30,6 +30,8 @@ All options: [config.md](config.md#channelstelegram).
   the whole chat is one conversation.
 - Reactions on your message: 🫡 queued, 👀 working, 😢 failed (Telegram only allows some emoji).
 - While Codex works, a draft message shows what it is doing ("Running `bun test`…").
+- `/stop` (or `!stop`) stops what the agent is doing in the topic right away; messages you sent
+  meanwhile are still handled after it.
 - Choices appear as buttons under the reply; your pick is sent as your next message.
 - Scheduled tasks open a new topic in your chat for each run; reply there to follow up.
 - Send photos, documents, videos, audio or voice notes, with a caption or without; an album

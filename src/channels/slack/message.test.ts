@@ -6,6 +6,7 @@ import {
   fromThreadMessage,
   slackFiles,
   slashCommandMessage,
+  stopButtonMessage,
   stripMention,
 } from "./message.ts";
 
@@ -184,4 +185,16 @@ describe("files", () => {
     });
     expect(fromThreadMessage(inThread, BOT)?.files).toEqual([attachment]);
   });
+});
+
+test("the stop button becomes !stop from the user who clicked, in that thread", () => {
+  expect(stopButtonMessage({ channel: "C1", thread_ts: "1.0", user: "U2" })).toEqual({
+    channel: "C1",
+    ts: "",
+    threadTs: "1.0",
+    user: "U2",
+    text: "!stop",
+    isDirect: false,
+  });
+  expect(stopButtonMessage({ channel: "D1", thread_ts: "1.0", user: "U2" }).isDirect).toBe(true);
 });

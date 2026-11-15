@@ -46,6 +46,7 @@ settings:
       - message.channels
       - message.groups
       - message.im
+      - agent_session_stopped # the stop button on "is working"
   interactivity:
     is_enabled: true
   org_deploy_enabled: false

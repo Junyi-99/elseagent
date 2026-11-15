@@ -34,6 +34,8 @@ configured, one agent answers in both, sharing its queue and limits.
   are also shown to Codex as images. Files up to 100 MB (Telegram lets bots download up to 20 MB).
 - The agent can send files back (a chart, a report, an export): it names them with its reply and
   they are uploaded after the text, up to 10 per reply and 100 MB each (50 MB on Telegram).
+- A message sent while the agent works on the same conversation waits for that turn to end.
+  `!stop` (Telegram: `/stop`) is the exception: it stops the running turn right away.
 - At most `maxConcurrent` Codex turns run at once. Further messages wait in a queue (first
   come, first served, one turn at a time per conversation).
 - The session mapping and the queue live in SQLite under `stateDir`, so queued messages

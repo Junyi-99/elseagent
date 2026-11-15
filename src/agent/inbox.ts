@@ -4,15 +4,20 @@ import { followCommand, MUTED_REPLY, routeThreadMessage, UNMUTED_REPLY } from ".
 import type { Scheduler } from "./scheduler.ts";
 import { REACTIONS } from "./turn.ts";
 
+/** `!stop` (Telegram: `/stop`): stop the turn running in this conversation, right away. */
+export const isStopCommand = (text: string) => text.trim().toLowerCase() === "!stop";
+
+export const NOTHING_TO_STOP = "Nothing is running here.";
+
 export interface InboxDeps {
-  scheduler: Pick<Scheduler, "submit">;
+  scheduler: Pick<Scheduler, "submit" | "cancel">;
   sessions: Pick<SessionStore, "followState" | "addressed" | "noteUnanswered" | "setMuted">;
   now?: () => number;
 }
 
 /**
- * What happens to a message from any channel: `!mute`/`!unmute` in a thread, thread messages
- * that don't mention the agent (followed or not, see follow.ts), then the queue.
+ * What happens to a message from any channel: `!stop`, `!mute`/`!unmute` in a thread, thread
+ * messages that don't mention the agent (followed or not, see follow.ts), then the queue.
  */
 export function createMessageHandler({
   scheduler,
@@ -22,6 +27,13 @@ export function createMessageHandler({
   return async (message, reply) => {
     const key = conversationKey(message);
     const channelThread = !message.isDirect && message.threadTs !== undefined;
+
+    // Not queued: it has to reach the running turn. Messages queued behind it still run.
+    if (isStopCommand(message.text)) {
+      // The stopped turn says who stopped it.
+      if (!scheduler.cancel(key, message.user)) await reply.post(NOTHING_TO_STOP);
+      return;
+    }
 
     const command = channelThread ? followCommand(message.text) : null;
     if (command) {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { IncomingMessage, Reply } from "../channels/types.ts";
 import { type NewQueuedMessage, openStateDb, SessionStore } from "../state/index.ts";
 import { MUTED_REPLY, UNMUTED_REPLY } from "./follow.ts";
-import { createMessageHandler } from "./inbox.ts";
+import { createMessageHandler, NOTHING_TO_STOP } from "./inbox.ts";
 import { REACTIONS } from "./turn.ts";
 
 function setup() {
@@ -10,6 +10,8 @@ function setup() {
   const submitted: NewQueuedMessage[] = [];
   const posts: string[] = [];
   const reactions: string[] = [];
+  const cancelled: [string, string][] = [];
+  let running = true;
   const reply: Reply = {
     post: async (text) => {
       posts.push(text);
@@ -24,6 +26,10 @@ function setup() {
       submit: (m) => {
         submitted.push(m);
         return { status: "queued", position: 1 };
+      },
+      cancel: (key, by) => {
+        cancelled.push([key, by]);
+        return running;
       },
     },
     sessions,
@@ -41,7 +47,10 @@ function setup() {
       },
       reply,
     );
-  return { sessions, submitted, posts, reactions, send };
+  const setRunning = (value: boolean) => {
+    running = value;
+  };
+  return { sessions, submitted, posts, reactions, send, cancelled, setRunning };
 }
 
 const thread = (mentionsOthers = false) => ({ unaddressed: { mentionsOthers } });
@@ -94,5 +103,24 @@ describe("message handler", () => {
     const { send, submitted } = setup();
     await send({ channel: "D1", threadTs: undefined, isDirect: true, text: "!mute" });
     expect(submitted.map((m) => [m.text, m.mode])).toEqual([["!mute", "direct"]]);
+  });
+
+  test("!stop stops the conversation's running turn at once, anywhere, mentioned or not", async () => {
+    const { send, submitted, cancelled, posts, setRunning } = setup();
+    await send({ text: " !STOP " });
+    await send({ text: "!stop", user: "U2", ...thread() }); // followed or not
+    await send({ channel: "D1", threadTs: undefined, isDirect: true, text: "!stop" });
+    expect(cancelled).toEqual([
+      ["C1:1.0", "U1"],
+      ["C1:1.0", "U2"],
+      ["D1", "U1"],
+    ]);
+    expect(submitted).toEqual([]);
+    expect(posts).toEqual([]); // the stopped turn says who stopped it
+    setRunning(false);
+    await send({ text: "!stop" });
+    expect(posts).toEqual([NOTHING_TO_STOP]);
+    await send({ text: "please !stop" });
+    expect(submitted.map((m) => m.text)).toEqual(["please !stop"]);
   });
 });

@@ -108,6 +108,25 @@ export function fromThreadMessage(event: MessageEvent, botUserId: string): Incom
   };
 }
 
+/**
+ * A click on Slack's stop button (shown while the agent works in a thread), as `!stop` from the
+ * user who clicked, in that thread.
+ */
+export function stopButtonMessage(event: {
+  channel: string;
+  thread_ts: string;
+  user: string;
+}): IncomingMessage {
+  return {
+    channel: event.channel,
+    ts: "",
+    threadTs: event.thread_ts,
+    user: event.user,
+    text: "!stop",
+    isDirect: event.channel.startsWith("D"),
+  };
+}
+
 /** A slash command in a DM, as a message without a Slack message behind it (empty ts). */
 export function slashCommandMessage(channel: string, user: string, text: string): IncomingMessage {
   return { channel, ts: "", threadTs: undefined, user, text, isDirect: true };

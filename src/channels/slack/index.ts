@@ -19,6 +19,7 @@ import {
   fromMention,
   fromThreadMessage,
   slashCommandMessage,
+  stopButtonMessage,
 } from "./message.ts";
 
 /** Slack's limit for `markdown_text` is 12,000 characters; stay under it. */
@@ -191,6 +192,13 @@ export async function createSlackBot(
           fromDirectMessage(event, identity.userId) ??
           (config.threadReplies === "auto" ? fromThreadMessage(event, identity.userId) : null);
         if (message) await dispatch(message);
+      });
+      // Slack's stop button on "elseagent is working…" (needs the agent_session_stopped event).
+      // Our status is cleared when the stopped turn ends, which ends the processing state.
+      app.event("agent_session_stopped", async ({ event }) => {
+        await dispatch(stopButtonMessage(event));
+        // Leave "working" even if nothing was running (Slack doesn't on its own).
+        await replyTo({ channel: event.channel, ts: "", threadTs: event.thread_ts }).setStatus("");
       });
       // `/new` in a DM starts it over; it goes through the queue like a message (no ts: there
       // is no Slack message behind a slash command). Elsewhere, explain where it works.
