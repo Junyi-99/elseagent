@@ -88,6 +88,8 @@ export interface Channel {
   platform: Platform;
   /** Shown in logs, e.g. "slack @reviewer (U0123)". */
   label: string;
+  /** What Codex is told about conversations in this channel (formatting, threads, schedules). */
+  instructions: string;
   /** Whether a chat ID (a message's `channel`) belongs to this channel. */
   owns(channel: string): boolean;
   /** Reply to a message, including one received before a restart. */

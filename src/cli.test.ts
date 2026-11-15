@@ -26,7 +26,7 @@ describe("cli", () => {
     const res = run([], dir);
     const out = res.stdout + res.stderr;
     expect(out).toContain("Usage: elseagent");
-    expect(out).toMatch(/run \[options\] \[working-directory\]/);
+    expect(out).toMatch(/run \[options\] +start the agent/);
     expect(out).toMatch(/init \[options\]/);
   });
 
@@ -34,7 +34,7 @@ describe("cli", () => {
     const res = run(["init"], dir);
     expect(res.code).toBe(0);
     expect(await Bun.file(join(dir, ".elseagent.yaml")).text()).toBe(CONFIG_TEMPLATE);
-    expect(res.stdout).toContain("elseagent run [working-directory]");
+    expect(res.stdout).toContain("  elseagent run\n");
   });
 
   test("run reads ~/.elseagent.yaml by default", async () => {
@@ -78,7 +78,7 @@ describe("cli", () => {
     expect(res.stderr).toContain("elseagent init");
   });
 
-  test("run defaults the working directory to the current directory", async () => {
+  test("run works in `workspace`, ~/workspace by default", async () => {
     await Bun.write(
       join(dir, "ok.yaml"),
       "channels:\n  slack:\n    botToken: a\n    appToken: b\n",
@@ -86,19 +86,31 @@ describe("cli", () => {
     const res = run(["run", "-c", "ok.yaml", "--dry-run"], dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(new RegExp(`config: +${join(dir, "ok.yaml")}\\n`));
-    expect(res.stdout).toMatch(new RegExp(`working directory: +${dir}\\n`));
+    // A dry run doesn't create it.
+    expect(res.stdout).toMatch(
+      new RegExp(`workspace: +${join(dir, "workspace")} \\(will be created\\)\\n`),
+    );
   });
 
-  test("run accepts a working directory argument", async () => {
+  test("run uses an existing `workspace`", async () => {
     await mkdir(join(dir, "ws"), { recursive: true });
-    const res = run(["run", "-c", "ok.yaml", "--dry-run", "ws"], dir);
+    await Bun.write(
+      join(dir, "ws.yaml"),
+      "workspace: ws\nchannels:\n  slack:\n    botToken: a\n    appToken: b\n",
+    );
+    const res = run(["run", "-c", "ws.yaml", "--dry-run"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toMatch(new RegExp(`working directory: +${join(dir, "ws")}\\n`));
+    expect(res.stdout).toMatch(new RegExp(`workspace: +${join(dir, "ws")}\\n`));
   });
 
-  test("run rejects a working directory that is missing or not a directory", () => {
-    const res = run(["run", "-c", "ok.yaml", "--dry-run", "does-not-exist"], dir);
-    expect(res.code).not.toBe(0);
-    expect(res.stderr).toContain("working directory not found or not a directory");
+  test("run rejects a `workspace` that is a file", async () => {
+    await Bun.write(join(dir, "afile"), "x");
+    await Bun.write(
+      join(dir, "file.yaml"),
+      "workspace: afile\nchannels:\n  slack:\n    botToken: a\n    appToken: b\n",
+    );
+    const res = run(["run", "-c", "file.yaml", "--dry-run"], dir);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain("workspace is not a directory");
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SLACK_INSTRUCTIONS, TELEGRAM_INSTRUCTIONS } from "./agent/instructions.ts";
+import { AGENT_INSTRUCTIONS } from "./agent/instructions.ts";
 import {
   AGENT_THREAD_DEFAULTS,
   buildCodexOptions,
@@ -65,26 +65,23 @@ describe("buildThreadOptions", () => {
 });
 
 describe("buildCodexOptions", () => {
-  test("sends the Slack instructions followed by the agent prompt", () => {
-    const opts = buildCodexOptions({ codexPath: "/bin/codex", prompt: "You are a reviewer." });
+  test("sends the agent instructions, then the channel's, then the agent prompt", () => {
+    const opts = buildCodexOptions({
+      codexPath: "/bin/codex",
+      channelInstructions: "This is Telegram.",
+      prompt: "You are a reviewer.",
+    });
     expect(opts.codexPathOverride).toBe("/bin/codex");
-    const instructions = String(opts.config?.developer_instructions);
-    expect(instructions.startsWith(SLACK_INSTRUCTIONS)).toBe(true);
-    expect(instructions.endsWith("# Your role\n\nYou are a reviewer.")).toBe(true);
+    expect(opts.config?.developer_instructions).toBe(
+      `${AGENT_INSTRUCTIONS}\n\n# This chat\n\nThis is Telegram.\n\n# Your role\n\nYou are a reviewer.`,
+    );
   });
 
-  test("without a prompt only the Slack instructions are sent", () => {
+  test("without a channel or prompt only the agent instructions are sent", () => {
     expect(buildCodexOptions({ codexPath: "/bin/codex" }).config).toEqual({
-      developer_instructions: SLACK_INSTRUCTIONS,
+      developer_instructions: AGENT_INSTRUCTIONS,
       features: { plugins: false, apps: false },
     });
-  });
-
-  test("Telegram conversations get the Telegram instructions", () => {
-    const opts = buildCodexOptions({ codexPath: "/bin/codex", platform: "telegram", prompt: "Hi" });
-    expect(opts.config?.developer_instructions).toBe(
-      `${TELEGRAM_INSTRUCTIONS}\n\n# Your role\n\nHi`,
-    );
   });
 });
 

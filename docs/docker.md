@@ -53,21 +53,35 @@ env:
 ```
 
 **Codex sign-in.** With `CODEX_API_KEY`, Codex uses the key. Without it, elseagent checks for
-a saved login (`codex login`, stored in `/home/agent/.codex`); if there is none it starts Codex's
+a saved login (`codex login`, stored in `/home/elseagent/.codex`); if there is none it starts Codex's
 device-code login before connecting to Slack or Telegram and prints the link and a one-time code to the
 log (`docker logs` / `kubectl logs`). Open the link, enter the code, and the agent continues;
 an expired code (15 minutes) is replaced with a new one. The login is saved in the home volume,
 so this happens once.
 
 The images run in Singapore time (`TZ=Asia/Singapore`), which is also the default for scheduled
-tasks; change it with `agent.timezone` in the config, or `-e TZ=...` for the whole container.
+tasks; change it with `timezone` in the config, or `-e TZ=...` for the whole container.
 
-## Volumes
+## Volume
 
-| Path          | Holds                                                                                                                                                      | Persist? |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `/home/agent` | Codex sessions (`~/.codex`, needed to continue conversations), elseagent's state database (`~/.elseagent`), caches, tools the agent installed for its user | Yes      |
-| `/workspace`  | The working directory: repositories and files the agent works on                                                                                           | Yes      |
+The agent runs as the user `elseagent` and keeps everything in its home, so one volume on
+`/home/elseagent` is enough:
+
+| Path                         | Holds                                                                      |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `~/workspace`                | The workspace: repositories and files the agent works on                   |
+| `~/.codex`                   | Codex login and sessions (needed to continue conversations)                |
+| `~/.elseagent`               | elseagent's state database (session mapping, queue, schedules)             |
+| `~/.npm-global`, `~/go`, ... | Tools the agent installed for its user (`npm i -g`, `go install`, uv, Bun) |
+
+To keep the workspace on its own volume, mount it anywhere and set `workspace` in the config,
+e.g. `workspace: /workspace` with `-v agent-workspace:/workspace`.
+
+A new, empty Docker named volume is filled with the image's home directory on first use
+(`.bashrc`, `.profile`, the empty `workspace`). A bind mount or a Kubernetes volume starts empty
+instead, which is fine: the PATH comes from the image (`/etc/profile.d`), and elseagent creates
+the workspace and its other directories. Shell history (`.bash_history`) is only written by
+interactive shells, e.g. when you `docker exec -it ... bash`; Codex's commands don't add to it.
 
 Packages installed with `sudo apt-get` go to the image's system directories and are gone when
 the container is recreated. Add tools the agent needs permanently to the Dockerfile.
@@ -78,13 +92,12 @@ the container is recreated. Add tools the agent needs permanently to the Dockerf
 docker build --target full -t elseagent:full .
 docker run -d --name reviewer --restart unless-stopped --shm-size=1g \
   -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" \
-  -v reviewer-home:/home/agent \
-  -v reviewer-workspace:/workspace \
+  -v reviewer-home:/home/elseagent \
   elseagent:full
 ```
 
 Check a config without connecting to Slack or Telegram:
-`docker run --rm -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" elseagent:full run -c /etc/elseagent/config.yaml --dry-run /workspace`.
+`docker run --rm -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" elseagent:full run -c /etc/elseagent/config.yaml --dry-run`.
 
 ## Kubernetes
 
@@ -136,8 +149,7 @@ spec:
           image: registry.example.com/elseagent:full
           volumeMounts:
             - { name: config, mountPath: /etc/elseagent, readOnly: true }
-            - { name: data, mountPath: /home/agent, subPath: home }
-            - { name: data, mountPath: /workspace, subPath: workspace }
+            - { name: home, mountPath: /home/elseagent }
             - { name: shm, mountPath: /dev/shm } # Chromium needs more than the default 64 MB
           resources:
             requests: { cpu: "1", memory: 2Gi }
@@ -148,12 +160,12 @@ spec:
         - name: shm
           emptyDir: { medium: Memory, sizeLimit: 1Gi }
   volumeClaimTemplates:
-    - metadata: { name: data }
+    - metadata: { name: home }
       spec:
         accessModes: [ReadWriteOnce]
         resources: { requests: { storage: 50Gi } }
 ```
 
-The volume mounted on `/home/agent` starts empty and hides the image's (empty) home directory;
-that is fine, the agent creates what it needs. For several agents, repeat the three objects with
+The volume mounted on `/home/elseagent` starts empty (see [Volume](#volume)); that is fine.
+For several agents, repeat the three objects with
 a different name and config.

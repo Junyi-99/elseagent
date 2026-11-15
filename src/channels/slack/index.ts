@@ -12,6 +12,7 @@ import {
 import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
 import { fetchThreadContext } from "./context.ts";
+import { SLACK_INSTRUCTIONS } from "./instructions.ts";
 import { fromDirectMessage, fromMention, slashCommandMessage } from "./message.ts";
 
 /** Slack's limit for `markdown_text` is 12,000 characters; stay under it. */
@@ -124,6 +125,7 @@ export async function createSlackBot(
   return {
     platform: "slack",
     label: `slack @${identity.name} (${identity.userId})`,
+    instructions: SLACK_INSTRUCTIONS,
     identity,
     owns: (channel) => !isOtherPlatform(channel),
     replyTo,

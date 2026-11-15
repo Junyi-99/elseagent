@@ -5,6 +5,7 @@ import type { Channel, Reply } from "./types.ts";
 const fake = (platform: Channel["platform"], prefix: string): Channel => ({
   platform,
   label: platform,
+  instructions: "",
   owns: (channel) => channel.startsWith(prefix),
   replyTo: () => ({ platform }) as unknown as Reply,
   threadContext: async () => ({ messages: [{ user: platform, text: "" }], omitted: 0 }),
@@ -15,8 +16,8 @@ const fake = (platform: Channel["platform"], prefix: string): Channel => ({
 
 test("each call goes to the channel that owns the chat ID", async () => {
   const channels = new Channels([fake("telegram", "tg:"), fake("slack", "C")]);
-  expect(channels.platformOf("tg:1")).toBe("telegram");
-  expect(channels.platformOf("C1")).toBe("slack");
+  expect(channels.for("tg:1").platform).toBe("telegram");
+  expect(channels.for("C1").platform).toBe("slack");
   expect(channels.replyTo({ channel: "C1", ts: "1" })).toEqual({ platform: "slack" } as never);
   const context = await channels.threadContext({ channel: "tg:1", ts: "1", threadTs: null }, null);
   expect(context.messages[0]?.user).toBe("telegram");
@@ -25,6 +26,6 @@ test("each call goes to the channel that owns the chat ID", async () => {
 
 test("a chat ID no channel owns is an error", () => {
   const channels = new Channels([fake("telegram", "tg:")]);
-  expect(() => channels.platformOf("C1")).toThrow("telegram");
+  expect(() => channels.for("C1")).toThrow("telegram");
   expect(() => new Channels([])).toThrow();
 });

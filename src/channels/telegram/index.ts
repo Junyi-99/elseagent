@@ -20,6 +20,7 @@ import {
   type TgUser,
 } from "./api.ts";
 import { plainLine, TELEGRAM_MARKDOWN_LIMIT, toTelegramHtml } from "./format.ts";
+import { TELEGRAM_INSTRUCTIONS } from "./instructions.ts";
 import {
   chatChannel,
   chatIdOf,
@@ -346,6 +347,7 @@ export async function createTelegramBot(
   return {
     platform: "telegram",
     label: `telegram @${identity.username} (${identity.id})`,
+    instructions: TELEGRAM_INSTRUCTIONS,
     identity,
     owns: (channel) => channel.startsWith(TELEGRAM_PREFIX),
     replyTo,

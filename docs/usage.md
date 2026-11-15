@@ -3,13 +3,14 @@
 ## Running it
 
 ```bash
-elseagent init                                 # write a minimal ~/.elseagent.yaml
-elseagent init -o ./agents/reviewer.yaml -f    # somewhere else, overwriting
-elseagent run                                  # ~/.elseagent.yaml, works in the current directory
-elseagent run -c ./config.yaml /srv/workspace  # custom config and working directory
-elseagent run -c ./config.yaml --dry-run       # check config, codex and working directory, then exit
+elseagent init                               # write a minimal ~/.elseagent.yaml
+elseagent init -o ./agents/reviewer.yaml -f  # somewhere else, overwriting
+elseagent run                                # start with ~/.elseagent.yaml
+elseagent run -c ./config.yaml               # another config
+elseagent run -c ./config.yaml --dry-run     # check config, codex and workspace, then exit
 ```
 
+The agent works in `workspace` from the config (default `~/workspace`, created if missing).
 Codex runs in agent mode: no approval prompts, allowed outside git repositories, and the
 `workspace-write` sandbox unless `codex.sandboxMode` says otherwise. The `codex` CLI must be
 installed (on `PATH`, or set `codex.path`). Without `CODEX_API_KEY` or a saved `codex login`,
@@ -23,14 +24,14 @@ configured, one agent answers in both, sharing its queue and limits.
 - Each conversation (a Slack thread, a Telegram topic, a DM) maps to one Codex session.
   Follow-ups continue that session; Codex keeps the history.
 - Codex gets built-in instructions for working in chat (ask instead of guessing, end the turn
-  to wait for an answer, chat-friendly Markdown); `agent.prompt` is added after them.
+  to wait for an answer, chat-friendly Markdown); `prompt` is added after them.
 - When Codex needs a decision it can offer choices, shown as buttons. Clicking one sends the
   pick to the agent as the next message.
-- At most `agent.maxConcurrent` Codex turns run at once. Further messages wait in a queue (first
+- At most `maxConcurrent` Codex turns run at once. Further messages wait in a queue (first
   come, first served, one turn at a time per conversation).
-- The session mapping and the queue live in SQLite under `agent.stateDir`, so queued messages
+- The session mapping and the queue live in SQLite under `stateDir`, so queued messages
   survive a restart. Messages that were mid-turn during a restart are reported back, not rerun.
-- Conversations idle for `agent.sessionIdleDays` are forgotten; their next message starts fresh.
+- Conversations idle for `sessionIdleDays` are forgotten; their next message starts fresh.
 
 ## Agent tools and scheduled tasks
 
@@ -44,7 +45,7 @@ with every Codex turn, so the agent can inspect and manage itself when asked:
 
 Ask in plain words, e.g. "every weekday at 9am, check the CI dashboard and post a summary in
 #ops". Each run starts a new Codex session and posts its result as a new conversation (a Slack
-message, a Telegram topic) where you can follow up. Schedules use `agent.timezone` unless they
+message, a Telegram topic) where you can follow up. Schedules use `timezone` unless they
 set their own, run at most every 5 minutes, and are limited to 50 per agent. A run missed while
 the agent was down happens once after it restarts.
 

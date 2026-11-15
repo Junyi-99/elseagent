@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   CONFIG_TEMPLATE,
   ConfigError,
@@ -33,7 +33,7 @@ describe("loadConfig", () => {
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
     expect(config.channels.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", join: [] });
-    expect(config.agent.maxConcurrent).toBe(32);
+    expect(config.maxConcurrent).toBe(32);
     expect(config.codex).toEqual({});
   });
 
@@ -50,7 +50,7 @@ describe("loadConfig", () => {
     const err = await loadConfig(empty).catch((e) => e);
     expect(err.message).toContain("channels.slack.botToken is required");
     expect(err.message).toContain("channels.slack.appToken is required");
-    const none = await writeConfig("no-channel.yaml", "agent:\n  maxConcurrent: 2\n");
+    const none = await writeConfig("no-channel.yaml", "maxConcurrent: 2\n");
     expect(loadConfig(none)).rejects.toThrow("configure at least one channel");
     const emptySection = await writeConfig("empty-slack.yaml", "channels:\n  slack:\n");
     expect(loadConfig(emptySection)).rejects.toThrow("configure at least one channel");
@@ -81,33 +81,31 @@ describe("loadConfig", () => {
     expect(config.channels.telegram).toEqual({ botToken: "c", allowedUsers: [] });
   });
 
-  test("agent.prompt: multi-line is kept, empty means no prompt", async () => {
+  test("prompt: multi-line is kept, empty means no prompt", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
-    const multi = await writeConfig(
-      "prompt.yaml",
-      `agent:\n  prompt: |\n    Line one.\n    Line two.\n${base}`,
-    );
-    expect((await loadConfig(multi)).agent.prompt).toBe("Line one.\nLine two.");
-    const empty = await writeConfig("empty-prompt.yaml", `agent:\n  prompt: "  "\n${base}`);
-    expect((await loadConfig(empty)).agent.prompt).toBeUndefined();
+    const multi = await writeConfig("prompt.yaml", `prompt: |\n  Line one.\n  Line two.\n${base}`);
+    expect((await loadConfig(multi)).prompt).toBe("Line one.\nLine two.");
+    const empty = await writeConfig("empty-prompt.yaml", `prompt: "  "\n${base}`);
+    expect((await loadConfig(empty)).prompt).toBeUndefined();
   });
 
-  test("agent limits default and can be overridden", async () => {
+  test("limits default and can be overridden", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const defaults = await loadConfig(await writeConfig("limits-default.yaml", base));
-    expect(defaults.agent).toEqual({
+    expect(defaults).toMatchObject({
       maxConcurrent: 32,
       maxQueue: 1024,
       turnTimeoutMinutes: 30,
       sessionIdleDays: 7,
+      workspace: join(homedir(), "workspace"),
       stateDir: join(homedir(), ".elseagent"),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     const custom = await writeConfig(
       "limits.yaml",
-      `agent:\n  maxConcurrent: 4\n  sessionIdleDays: 1\n${base}`,
+      `maxConcurrent: 4\nsessionIdleDays: 1\n${base}`,
     );
-    expect((await loadConfig(custom)).agent).toMatchObject({
+    expect(await loadConfig(custom)).toMatchObject({
       maxConcurrent: 4,
       sessionIdleDays: 1,
     });
@@ -115,18 +113,26 @@ describe("loadConfig", () => {
 
   test("rejects non-positive or fractional limits", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
-    const zero = await writeConfig("zero.yaml", `agent:\n  maxConcurrent: 0\n${base}`);
-    expect(loadConfig(zero)).rejects.toThrow("agent.maxConcurrent must be greater than 0");
-    const frac = await writeConfig("frac.yaml", `agent:\n  sessionIdleDays: 1.5\n${base}`);
-    expect(loadConfig(frac)).rejects.toThrow("agent.sessionIdleDays must be a whole number");
+    const zero = await writeConfig("zero.yaml", `maxConcurrent: 0\n${base}`);
+    expect(loadConfig(zero)).rejects.toThrow("maxConcurrent must be greater than 0");
+    const frac = await writeConfig("frac.yaml", `sessionIdleDays: 1.5\n${base}`);
+    expect(loadConfig(frac)).rejects.toThrow("sessionIdleDays must be a whole number");
   });
 
-  test("agent.stateDir expands ~ and resolves relative paths against the config file", async () => {
+  test("workspace expands ~ and resolves relative paths against the config file", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
-    const home = await writeConfig("state-home.yaml", `agent:\n  stateDir: ~/agents/a\n${base}`);
-    expect((await loadConfig(home)).agent.stateDir).toBe(join(homedir(), "agents/a"));
-    const rel = await writeConfig("state-rel.yaml", `agent:\n  stateDir: ./state\n${base}`);
-    expect((await loadConfig(rel)).agent.stateDir).toBe(join(dir, "state"));
+    const rel = await writeConfig("ws-rel.yaml", `workspace: ./ws\n${base}`);
+    expect((await loadConfig(rel)).workspace).toBe(join(dirname(rel), "ws"));
+    const home = await writeConfig("ws-home.yaml", `workspace: ~/code\n${base}`);
+    expect((await loadConfig(home)).workspace).toBe(join(homedir(), "code"));
+  });
+
+  test("stateDir expands ~ and resolves relative paths against the config file", async () => {
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
+    const home = await writeConfig("state-home.yaml", `stateDir: ~/agents/a\n${base}`);
+    expect((await loadConfig(home)).stateDir).toBe(join(homedir(), "agents/a"));
+    const rel = await writeConfig("state-rel.yaml", `stateDir: ./state\n${base}`);
+    expect((await loadConfig(rel)).stateDir).toBe(join(dir, "state"));
   });
 
   test("env: variables as strings, empty when missing, names validated", async () => {
@@ -217,7 +223,7 @@ describe("docs/config.md", () => {
     const docs = await Bun.file(join(import.meta.dir, "../../docs/config.md")).text();
     const missing = Object.entries(configSections).flatMap(([section, schema]) =>
       Object.keys(schema.shape)
-        .map((key) => `${section}.${key}`)
+        .map((key) => (section ? `${section}.${key}` : key))
         .filter((option) => !docs.includes(`\`${option}\``)),
     );
     expect(missing).toEqual([]);

@@ -1,6 +1,5 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
 import { buildInstructions } from "./agent/instructions.ts";
-import type { Platform } from "./channels/types.ts";
 import type { CodexConfig } from "./config/index.ts";
 import { ConfigError } from "./config/index.ts";
 import { TOKEN_ENV, TURN_HEADER } from "./mcp/server.ts";
@@ -38,10 +37,10 @@ export interface McpRegistration {
 
 export interface CodexClientOptions {
   codexPath: string;
-  /** The agent's role (agent.prompt). */
+  /** The agent's role (`prompt` in the config). */
   prompt?: string;
-  /** Where the conversation happens; picks the built-in instructions. Default: slack. */
-  platform?: Platform;
+  /** Instructions of the channel the conversation is in (`Channel.instructions`). */
+  channelInstructions?: string;
   /** Registers the elseagent MCP server for this turn. */
   mcp?: McpRegistration;
   /** Variables from the config's `env:`, made available to the commands Codex runs. */
@@ -49,7 +48,7 @@ export interface CodexClientOptions {
 }
 
 /**
- * Codex options for one turn. The built-in instructions for the platform plus the agent prompt become
+ * Codex options for one turn. The built-in agent instructions, the channel's and the agent prompt become
  * Codex's `developer_instructions` (on top of Codex's own system prompt). With `mcp`, the
  * elseagent MCP server is registered; its tools are trusted, so they run without approval
  * (with `approvalPolicy: never`, anything needing approval would be refused).
@@ -57,12 +56,12 @@ export interface CodexClientOptions {
 export function buildCodexOptions({
   codexPath,
   prompt,
-  platform,
+  channelInstructions,
   mcp,
   shellEnv = {},
 }: CodexClientOptions): CodexOptions {
   const config: NonNullable<CodexOptions["config"]> = {
-    developer_instructions: buildInstructions(prompt, platform),
+    developer_instructions: buildInstructions({ channel: channelInstructions, prompt }),
     // No ChatGPT apps (Gmail, Drive… connected to the Codex login's account) and no Codex
     // plugins: the agent only gets the tools we give it. MCP servers configured here, like
     // elseagent's own, are not affected.

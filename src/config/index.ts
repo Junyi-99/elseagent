@@ -1,7 +1,6 @@
 export { ConfigError, loadConfig } from "./load.ts";
 export { expandHome } from "./paths.ts";
 export {
-  type AgentConfig,
   type ChannelsConfig,
   type CodexConfig,
   type Config,

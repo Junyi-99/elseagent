@@ -1,4 +1,4 @@
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import pkg from "../package.json";
@@ -15,31 +15,12 @@ export function buildProgram(): Command {
     .command("run")
     .description("start the agent")
     .option("-c, --config <path>", "path to config file", DEFAULT_CONFIG_PATH)
-    .option(
-      "--dry-run",
-      "validate config, codex and working directory, then exit without connecting",
-    )
-    .argument("[working-directory]", "directory the agent works in (default: current directory)")
-    .action(
-      async (
-        workingDirectoryArg: string | undefined,
-        opts: { config: string; dryRun?: boolean },
-      ) => {
-        const workingDirectory = resolve(workingDirectoryArg ?? process.cwd());
-        const isDir = await stat(workingDirectory).then(
-          (s) => s.isDirectory(),
-          () => false,
-        );
-        if (!isDir) {
-          program.error(
-            `error: working directory not found or not a directory: ${workingDirectory}`,
-          );
-        }
-        const configPath = resolve(expandHome(opts.config));
-        const config = await loadConfig(configPath);
-        await startApp(config, { configPath, workingDirectory, dryRun: opts.dryRun });
-      },
-    );
+    .option("--dry-run", "check config, codex and workspace, then exit without connecting")
+    .action(async (opts: { config: string; dryRun?: boolean }) => {
+      const configPath = resolve(expandHome(opts.config));
+      const config = await loadConfig(configPath);
+      await startApp(config, { configPath, dryRun: opts.dryRun });
+    });
 
   program
     .command("init")
@@ -58,7 +39,7 @@ export function buildProgram(): Command {
         "Fill in channels.slack.botToken and appToken (or set up channels.telegram), then run:",
       );
       const isDefault = out === resolve(expandHome(DEFAULT_CONFIG_PATH));
-      console.log(`  elseagent run ${isDefault ? "" : `-c ${out} `}[working-directory]`);
+      console.log(`  elseagent run${isDefault ? "" : ` -c ${out}`}`);
     });
 
   return program;

@@ -31,7 +31,8 @@ export async function loadConfig(path: string): Promise<Config> {
 
   const config = result.data;
   const baseDir = dirname(absPath);
-  config.agent.stateDir = resolve(baseDir, expandHome(config.agent.stateDir));
+  config.workspace = resolve(baseDir, expandHome(config.workspace));
+  config.stateDir = resolve(baseDir, expandHome(config.stateDir));
   // A bare command name (e.g. "codex") is looked up on PATH, so only resolve real paths.
   if (config.codex.path?.includes("/")) {
     config.codex.path = resolve(baseDir, expandHome(config.codex.path));

@@ -153,34 +153,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && printf -- '--js-runtimes node\n' > /etc/yt-dlp.conf
 
 # --- Agent runtime --------------------------------------------------------------------------
-# Codex CLI (which elseagent drives) and elseagent itself. The agent runs as `agent` with
-# passwordless sudo (7: apt-get install whatever is missing). Per-user installs go to its
-# home, which should be a volume so they survive restarts: npm -g, go install, bun add -g,
-# uv tools, plus Codex sessions (~/.codex) and elseagent's state (~/.elseagent).
+# Codex CLI (which elseagent drives) and elseagent itself. The agent runs as `elseagent` with
+# passwordless sudo (7: apt-get install whatever is missing). Everything it keeps lives in its
+# home, the one volume: the workspace (~/workspace), Codex sessions (~/.codex), elseagent's
+# state (~/.elseagent), and per-user installs (npm -g, go install, bun add -g, uv tools).
 RUN npm install -g --no-fund --no-audit "@openai/codex@${CODEX_VERSION}" \
     && npm cache clean --force \
-    && useradd --create-home --shell /bin/bash --uid 1000 agent \
-    && echo 'agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agent \
-    && chmod 0440 /etc/sudoers.d/agent \
-    && chown -R agent:agent /opt/tools \
-    && mkdir -p /workspace /etc/elseagent && chown agent:agent /workspace
+    && useradd --create-home --shell /bin/bash --uid 1000 elseagent \
+    && echo 'elseagent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/elseagent \
+    && chmod 0440 /etc/sudoers.d/elseagent \
+    && chown -R elseagent:elseagent /opt/tools \
+    && mkdir -p /etc/elseagent \
+    && install -d -o elseagent -g elseagent /home/elseagent/workspace
 COPY --from=build /src/dist/elseagent /usr/local/bin/elseagent
 
-ENV NPM_CONFIG_PREFIX=/home/agent/.npm-global \
-    BUN_INSTALL=/home/agent/.bun \
-    GOPATH=/home/agent/go \
-    PATH=/home/agent/.local/bin:/home/agent/.npm-global/bin:/home/agent/.bun/bin:/home/agent/go/bin:$PATH
+ENV NPM_CONFIG_PREFIX=/home/elseagent/.npm-global \
+    BUN_INSTALL=/home/elseagent/.bun \
+    GOPATH=/home/elseagent/go \
+    PATH=/home/elseagent/.local/bin:/home/elseagent/.npm-global/bin:/home/elseagent/.bun/bin:/home/elseagent/go/bin:$PATH
 # Codex runs commands in a login shell, and Debian's /etc/profile resets PATH for non-root
 # users; restore the full PATH (all the tool directories above) for login shells too.
 RUN printf 'export PATH="%s"\n' "$PATH" > /etc/profile.d/00-elseagent-path.sh
 
-USER agent
-WORKDIR /workspace
-ENV HOME=/home/agent
+USER elseagent
+WORKDIR /home/elseagent/workspace
+ENV HOME=/home/elseagent
 
-VOLUME ["/home/agent", "/workspace"]
+# The workspace defaults to ~/workspace, so one volume holds everything. Set `workspace` in
+# the config to put it elsewhere (e.g. a second volume).
+VOLUME ["/home/elseagent"]
 ENTRYPOINT ["elseagent"]
-CMD ["run", "-c", "/etc/elseagent/config.yaml", "/workspace"]
+CMD ["run", "-c", "/etc/elseagent/config.yaml"]
 
 # ============================================================================================
 # full: base + browser, office and document tooling
@@ -224,11 +227,11 @@ RUN npm install -g --prefix /usr/local --no-fund --no-audit "playwright@${PLAYWR
     && npm cache clean --force \
     && /usr/local/bin/playwright install-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /opt/ms-playwright && chown agent:agent /opt/ms-playwright
+    && mkdir -p /opt/ms-playwright && chown elseagent:elseagent /opt/ms-playwright
 
 # Installed as the agent, which owns /opt/tools and /opt/ms-playwright: no copies of whole
 # directories just to change their owner.
-USER agent
+USER elseagent
 
 # --- 5/6. Browser: Chromium (headless shell only; no GUI in a server) --------------------------
 # --- 6. Office & documents: Python libraries -------------------------------------------------

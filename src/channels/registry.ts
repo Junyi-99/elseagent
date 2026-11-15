@@ -1,4 +1,4 @@
-import type { Channel, Platform, Reply, ReplyTarget, ThreadContext } from "./types.ts";
+import type { Channel, Reply, ReplyTarget, ThreadContext } from "./types.ts";
 
 /**
  * The connected channels (Slack, Telegram), used as one: each call goes to the channel that owns
@@ -17,10 +17,6 @@ export class Channels {
       throw new Error(`${chat} doesn't belong to a connected channel (${known})`);
     }
     return channel;
-  }
-
-  platformOf(chat: string): Platform {
-    return this.for(chat).platform;
   }
 
   replyTo = (target: ReplyTarget): Reply => this.for(target.channel).replyTo(target);

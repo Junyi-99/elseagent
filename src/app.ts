@@ -1,3 +1,4 @@
+import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Admin } from "./agent/admin.ts";
 import { Scheduler } from "./agent/scheduler.ts";
@@ -9,14 +10,12 @@ import { createTelegramBot } from "./channels/telegram/index.ts";
 import { type Channel, conversationKey, type MessageHandler } from "./channels/types.ts";
 import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
 import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
-import type { Config } from "./config/index.ts";
+import { type Config, ConfigError } from "./config/index.ts";
 import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
 import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "./state/index.ts";
 
 export interface StartOptions {
   configPath: string;
-  /** Absolute path of the directory Codex works in. */
-  workingDirectory: string;
   /** Validate everything and print the summary, but do not connect to Slack or Telegram. */
   dryRun?: boolean;
 }
@@ -27,13 +26,15 @@ const DAY = 24 * 60 * MINUTE;
 /** Start the agent with a validated config. */
 export async function startApp(
   config: Config,
-  { configPath, workingDirectory, dryRun = false }: StartOptions,
+  { configPath, dryRun = false }: StartOptions,
 ): Promise<void> {
+  const { workspace } = config;
+  const workspaceState = await ensureWorkspace(workspace, dryRun);
   // The config's `env:` applies to this process and everything it starts (Codex, its tools).
   Object.assign(process.env, config.env);
   // Resolve the codex binary up front so a missing CLI fails at startup, not on the first message.
   const codexPath = resolveCodexPath(config.codex);
-  const threadOptions = buildThreadOptions(config.codex, workingDirectory);
+  const threadOptions = buildThreadOptions(config.codex, workspace);
 
   const {
     prompt,
@@ -43,10 +44,10 @@ export async function startApp(
     sessionIdleDays,
     stateDir,
     timezone,
-  } = config.agent;
+  } = config;
   printSummary([
     ["config", configPath],
-    ["working directory", workingDirectory],
+    ["workspace", workspaceState === "missing" ? `${workspace} (will be created)` : workspace],
     ["state directory", stateDir],
     ["model", threadOptions.model ?? "(codex default)"],
     ["reasoning effort", threadOptions.modelReasoningEffort ?? "(codex default)"],
@@ -103,7 +104,7 @@ export async function startApp(
         createCodex({
           codexPath,
           prompt,
-          platform: channels.platformOf(message.channel),
+          channelInstructions: channels.for(message.channel).instructions,
           mcp: mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
           shellEnv: config.env,
         }),
@@ -216,6 +217,20 @@ export async function startApp(
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+}
+
+/**
+ * Make sure the workspace is a directory, creating it if missing (except on a dry run).
+ * Returns whether it existed.
+ */
+async function ensureWorkspace(path: string, dryRun: boolean): Promise<"exists" | "missing"> {
+  const stats = await stat(path).catch(() => null);
+  if (stats && !stats.isDirectory()) {
+    throw new ConfigError(`workspace is not a directory: ${path}`);
+  }
+  if (stats) return "exists";
+  if (!dryRun) await mkdir(path, { recursive: true });
+  return "missing";
 }
 
 function printSummary(rows: [label: string, value: string][]): void {

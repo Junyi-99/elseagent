@@ -5,18 +5,19 @@ to use another). `elseagent init` writes a minimal one with only the required se
 same as [`config.example.yaml`](../config.example.yaml).
 
 Every option below is optional unless marked **required**. Leave out what you don't need; omitted
-options use their default. A missing or empty section behaves like an empty one.
+options use their default. A missing or empty section behaves like an empty one. The agent's
+own options are at the top level; `codex`, `channels` and `env` are sections.
 
 `channels` is where people talk to the agent: `channels.slack`, `channels.telegram`, or both
 (one agent then answers on both, sharing its queue and limits). Each is turned on by its
 section; at least one is needed.
 
 ```yaml
-agent:
-  prompt: |
-    You are the on-call assistant for the payments team.
-    Keep replies short; link to files you changed.
-  maxConcurrent: 8
+prompt: |
+  You are the on-call assistant for the payments team.
+  Keep replies short; link to files you changed.
+workspace: ~/payments
+maxConcurrent: 8
 
 codex:
   model: <model-name>
@@ -33,22 +34,20 @@ channels:
     allowedUsers: [123456789]
 ```
 
-The working directory is not part of the config: pass it on the command line
-(`elseagent run -c <config> [working-directory]`, default: the current directory).
+## Top level
 
-## `agent`
+How this agent behaves, where it works, and how much work it takes on at once.
 
-How this agent behaves and how much work it takes on at once.
-
-| Option                     | Type    | Default          | Description                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------- | ------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.prompt`             | string  | none             | The agent's role, given to Codex as developer instructions in every conversation, on top of Codex's own instructions. Without it, each conversation is a plain Codex session. Use `\|` for multi-line text.                                                                                                                                                                                              |
-| `agent.maxConcurrent`      | integer | `32`             | Codex turns running at the same time. A turn is one reply to one message, run as one `codex exec` process; idle conversations don't count. Further messages wait in a queue, first come first served.                                                                                                                                                                                                    |
-| `agent.maxQueue`           | integer | `1024`           | Messages that may wait for a free slot. The queue is stored in SQLite, so it survives restarts and can be large. Beyond this the agent replies that it is busy.                                                                                                                                                                                                                                          |
-| `agent.turnTimeoutMinutes` | integer | `30`             | A turn running longer than this is stopped, freeing its slot, and the thread is told it timed out. The conversation keeps its context. Guards against stuck commands or loops.                                                                                                                                                                                                                           |
-| `agent.sessionIdleDays`    | integer | `7`              | A conversation (Slack thread or DM, Telegram topic) with no activity for this long is forgotten; its next message starts a new Codex session.                                                                                                                                                                                                                                                            |
-| `agent.stateDir`           | string  | `~/.elseagent`   | Where the agent keeps its SQLite database: which Codex session each conversation uses, and the queue of unanswered messages. Message history is not stored there (Codex keeps it). One file per agent, named after its bot (`<team>-<bot user>.sqlite` with Slack, else `telegram-<bot id>.sqlite`), so agents can share the directory. `~` is expanded; relative paths resolve against the config file. |
-| `agent.timezone`           | string  | server time zone | Default time zone for scheduled tasks, as an IANA name (e.g. `Asia/Shanghai`). A task can also set its own when created ("every day at 9 Beijing time").                                                                                                                                                                                                                                                 |
+| Option               | Type    | Default          | Description                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | ------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`             | string  | none             | The agent's role, given to Codex as developer instructions in every conversation, on top of Codex's own instructions. Without it, each conversation is a plain Codex session. Use `\|` for multi-line text.                                                                                                                                                                                              |
+| `workspace`          | string  | `~/workspace`    | The directory Codex works in: repositories and files the agent works on. Created if missing. `~` is expanded; relative paths resolve against the config file. In Docker the default is inside the home volume; point it elsewhere to keep the workspace on its own volume.                                                                                                                               |
+| `maxConcurrent`      | integer | `32`             | Codex turns running at the same time. A turn is one reply to one message, run as one `codex exec` process; idle conversations don't count. Further messages wait in a queue, first come first served.                                                                                                                                                                                                    |
+| `maxQueue`           | integer | `1024`           | Messages that may wait for a free slot. The queue is stored in SQLite, so it survives restarts and can be large. Beyond this the agent replies that it is busy.                                                                                                                                                                                                                                          |
+| `turnTimeoutMinutes` | integer | `30`             | A turn running longer than this is stopped, freeing its slot, and the thread is told it timed out. The conversation keeps its context. Guards against stuck commands or loops.                                                                                                                                                                                                                           |
+| `sessionIdleDays`    | integer | `7`              | A conversation (Slack thread or DM, Telegram topic) with no activity for this long is forgotten; its next message starts a new Codex session.                                                                                                                                                                                                                                                            |
+| `stateDir`           | string  | `~/.elseagent`   | Where the agent keeps its SQLite database: which Codex session each conversation uses, and the queue of unanswered messages. Message history is not stored there (Codex keeps it). One file per agent, named after its bot (`<team>-<bot user>.sqlite` with Slack, else `telegram-<bot id>.sqlite`), so agents can share the directory. `~` is expanded; relative paths resolve against the config file. |
+| `timezone`           | string  | server time zone | Default time zone for scheduled tasks, as an IANA name (e.g. `Asia/Shanghai`). A task can also set its own when created ("every day at 9 Beijing time").                                                                                                                                                                                                                                                 |
 
 ## `codex`
 

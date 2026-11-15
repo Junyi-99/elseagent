@@ -27,7 +27,7 @@ codex:
 docker build --target full -t elseagent .
 docker run -d --name elseagent --shm-size=1g \
   -v "$PWD/config.yaml:/etc/elseagent/config.yaml:ro" \
-  -v elseagent-home:/home/agent -v elseagent-workspace:/workspace \
+  -v elseagent-home:/home/elseagent \
   elseagent
 docker logs -f elseagent   # first time: open the link, enter the code to sign in to Codex
 ```

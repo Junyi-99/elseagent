@@ -40,6 +40,7 @@ function isTimezone(tz: string): boolean {
 const positiveInt = (name: string) =>
   z.int(`${name} must be a whole number`).positive(`${name} must be greater than 0`);
 
+/** The agent itself: its role, workspace, limits and state. These are top-level options. */
 const agentSchema = z.object({
   // The agent's role, passed to Codex as developer instructions. Empty = plain Codex session.
   prompt: z
@@ -47,13 +48,16 @@ const agentSchema = z.object({
     .transform((s) => s.trim() || undefined)
     .optional(),
   // Codex turns (one `codex exec` each) running at the same time. Idle sessions don't count.
-  maxConcurrent: positiveInt("agent.maxConcurrent").default(32),
+  maxConcurrent: positiveInt("maxConcurrent").default(32),
   // Messages waiting for a free slot; beyond this new messages are turned away.
-  maxQueue: positiveInt("agent.maxQueue").default(1024),
+  maxQueue: positiveInt("maxQueue").default(1024),
   // A turn running longer than this is aborted and its slot freed.
-  turnTimeoutMinutes: positiveInt("agent.turnTimeoutMinutes").default(30),
+  turnTimeoutMinutes: positiveInt("turnTimeoutMinutes").default(30),
   // A conversation with no activity for this long is forgotten; its next message starts fresh.
-  sessionIdleDays: positiveInt("agent.sessionIdleDays").default(7),
+  sessionIdleDays: positiveInt("sessionIdleDays").default(7),
+  // The directory Codex works in (repositories, files). Created if missing. `~` is expanded;
+  // relative paths resolve against the config file.
+  workspace: z.string().trim().min(1).default("~/workspace"),
   // Where the agent keeps its SQLite state (session mapping, message queue). `~` is expanded;
   // relative paths resolve against the config file.
   stateDir: z.string().trim().min(1).default("~/.elseagent"),
@@ -61,7 +65,7 @@ const agentSchema = z.object({
   timezone: z
     .string()
     .trim()
-    .refine(isTimezone, "agent.timezone must be an IANA time zone, e.g. Asia/Shanghai")
+    .refine(isTimezone, "timezone must be an IANA time zone, e.g. Asia/Shanghai")
     .default(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
 });
 
@@ -104,7 +108,7 @@ const telegramSchema = z.object(
 
 /** Every config section; docs/config.md must document each of their fields. */
 export const configSections = {
-  agent: agentSchema,
+  "": agentSchema, // top level
   codex: codexSchema,
   "channels.slack": slackSchema,
   "channels.telegram": telegramSchema,
@@ -146,16 +150,14 @@ const channelsSchema = z.preprocess(
     .refine((c) => c.slack || c.telegram, { error: NO_CHANNEL }),
 );
 
-export const configSchema = z.object({
-  // Optional sections may be missing or empty (`agent:` with nothing under it parses as null).
-  agent: z.preprocess((v) => v ?? {}, agentSchema),
+export const configSchema = agentSchema.extend({
+  // Optional sections may be missing or empty (`codex:` with nothing under it parses as null).
   codex: z.preprocess((v) => v ?? {}, codexSchema),
   channels: channelsSchema,
   env: z.preprocess((v) => v ?? {}, envSchema),
 });
 
 export type Config = z.infer<typeof configSchema>;
-export type AgentConfig = Config["agent"];
 export type ChannelsConfig = Config["channels"];
 export type SlackConfig = NonNullable<ChannelsConfig["slack"]>;
 export type TelegramConfig = NonNullable<ChannelsConfig["telegram"]>;
