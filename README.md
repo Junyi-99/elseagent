@@ -16,19 +16,15 @@ channels:
   telegram:
     botToken: "123456789:AA..."
     allowedUsers: [] # your user ID goes here, see step 4
-
-codex:
-  sandboxMode: danger-full-access # the container is the sandbox
 ```
 
 **3. Run it**:
 
 ```bash
-docker build --target full -t elseagent .
 docker run -d --name elseagent --shm-size=1g \
   -v "$PWD/config.yaml:/etc/elseagent/config.yaml:ro" \
   -v elseagent-home:/home/elseagent \
-  elseagent
+  ghcr.io/elsescape/elseagent-full:latest
 docker logs -f elseagent   # first time: open the link, enter the code to sign in to Codex
 ```
 

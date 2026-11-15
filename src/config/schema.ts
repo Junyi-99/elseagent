@@ -75,8 +75,8 @@ const codexSchema = z.object({
   path: z.string().trim().min(1).optional(),
   model: z.string().trim().min(1).optional(),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
-  // workspace-write (default): commands may only write in the working directory, no network.
-  // danger-full-access: no Codex sandbox; for containers, where the container is the sandbox.
+  // danger-full-access (default): no Codex sandbox; for containers, which are the sandbox.
+  // workspace-write: commands may only write in the workspace, no network (outside a container).
   sandboxMode: z.enum(["workspace-write", "danger-full-access"]).optional(),
 });
 

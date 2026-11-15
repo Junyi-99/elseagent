@@ -9,9 +9,13 @@ type CodexConfigValue = NonNullable<CodexOptions["config"]>[string];
 /** Codex features turned off for every turn (same as `codex --disable plugins --disable apps`). */
 export const DISABLED_FEATURES = { plugins: false, apps: false } as const;
 
-/** Fixed agent-mode settings: act autonomously inside the working directory, never stop to ask. */
+/**
+ * Agent-mode settings: act autonomously, never stop to ask. No Codex sandbox by default: the
+ * agent is meant to run in a container, which is its sandbox (`codex.sandboxMode` can turn
+ * Codex's own sandbox back on).
+ */
 export const AGENT_THREAD_DEFAULTS = {
-  sandboxMode: "workspace-write",
+  sandboxMode: "danger-full-access",
   approvalPolicy: "never",
   skipGitRepoCheck: true,
 } as const satisfies ThreadOptions;

@@ -39,7 +39,7 @@ describe("resolveCodexPath", () => {
 describe("buildThreadOptions", () => {
   test("runs in agent mode in the given working directory", () => {
     expect(buildThreadOptions({}, "/work")).toEqual({
-      sandboxMode: "workspace-write",
+      sandboxMode: "danger-full-access",
       approvalPolicy: "never",
       skipGitRepoCheck: true,
       workingDirectory: "/work",
@@ -48,9 +48,9 @@ describe("buildThreadOptions", () => {
     });
   });
 
-  test("a container deployment can turn off Codex's own sandbox", () => {
-    expect(buildThreadOptions({ sandboxMode: "danger-full-access" }, "/work").sandboxMode).toBe(
-      "danger-full-access",
+  test("outside a container, Codex's own sandbox can be turned on", () => {
+    expect(buildThreadOptions({ sandboxMode: "workspace-write" }, "/work").sandboxMode).toBe(
+      "workspace-write",
     );
   });
 

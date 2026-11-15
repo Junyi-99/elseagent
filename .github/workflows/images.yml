@@ -1,0 +1,136 @@
+# Build the base and full images for amd64 and arm64 and publish them to GitHub Container
+# Registry as ghcr.io/<owner>/elseagent-base:latest and ghcr.io/<owner>/elseagent-full:latest.
+# Only `latest` is kept: older versions are deleted after each publish. Build layers are cached
+# in ghcr.io/<owner>/elseagent-cache (one tag per image and architecture), so unchanged sections
+# of the Dockerfile are not rebuilt.
+name: images
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "assets/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: images
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      # The full image needs ~15 GB while building; make room on the runner.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Each architecture is pushed untagged (by digest); the merge job tags the multi-arch image.
+      # `full` builds on `base`, so it reuses the layers just built in this job.
+      - name: Build base
+        id: base
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: base
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/elseagent-cache:base-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/elseagent-cache:base-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true
+          outputs: type=image,name=${{ env.REGISTRY }}/elseagent-base,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Build full
+        id: full
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: full
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/elseagent-cache:base-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY }}/elseagent-cache:full-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/elseagent-cache:full-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true
+          outputs: type=image,name=${{ env.REGISTRY }}/elseagent-full,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Record digests
+        run: |
+          mkdir -p digests/base digests/full
+          touch "digests/base/${BASE#sha256:}" "digests/full/${FULL#sha256:}"
+        env:
+          BASE: ${{ steps.base.outputs.digest }}
+          FULL: ${{ steps.full.outputs.digest }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag latest (amd64 + arm64)
+        run: |
+          for image in base full; do
+            refs=()
+            for digest in "digests/$image"/*; do
+              refs+=("$REGISTRY/elseagent-$image@sha256:$(basename "$digest")")
+            done
+            docker buildx imagetools create -t "$REGISTRY/elseagent-$image:latest" "${refs[@]}"
+            docker buildx imagetools inspect "$REGISTRY/elseagent-$image:latest"
+          done
+
+      # Delete every version that is no longer tagged (previous builds and caches), keeping the
+      # per-architecture images that `latest` points to.
+      - name: Delete old versions
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: elseagent-base,elseagent-full,elseagent-cache
+          delete-untagged: true
+          token: ${{ secrets.GITHUB_TOKEN }}

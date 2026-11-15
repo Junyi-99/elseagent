@@ -4,12 +4,16 @@ One [`Dockerfile`](../Dockerfile), two images. The container is the agent's sand
 its commands inside it with full access, so the agent can use the network, install packages and
 write anywhere in the container, but nothing outside it.
 
-| Image  | Build                                            | Contains                                                                                                                         |
-| ------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `base` | `docker build --target base -t elseagent:base .` | Command-line tools: git/GitHub, C/C++, Python + uv, Go, Node.js, Bun, kubectl/Helm, Cloudflare CLIs, ImageMagick, ffmpeg, yt-dlp |
-| `full` | `docker build --target full -t elseagent:full .` | `base` + Chromium (Playwright), LibreOffice, pandoc, PDF tools, CJK/emoji fonts, Python/Node libraries for Office files and PDFs |
+| Image  | Published                                 | Contains                                                                                                                         |
+| ------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `base` | `ghcr.io/elsescape/elseagent-base:latest` | Command-line tools: git/GitHub, C/C++, Python + uv, Go, Node.js, Bun, kubectl/Helm, Cloudflare CLIs, ImageMagick, ffmpeg, yt-dlp |
+| `full` | `ghcr.io/elsescape/elseagent-full:latest` | `base` + Chromium (Playwright), LibreOffice, pandoc, PDF tools, CJK/emoji fonts, Python/Node libraries for Office files and PDFs |
 
-Both build for `linux/amd64` and `linux/arm64` (`docker buildx build --platform ...`); sizes are
+The [`images` workflow](../.github/workflows/images.yml) builds both for `linux/amd64` and
+`linux/arm64` on every push to `main` and publishes them as `latest`; older versions are deleted,
+so `latest` is the only one. While the packages are private, `docker login ghcr.io` with a token
+that can read packages before pulling (in Kubernetes, an `imagePullSecret`). To build
+locally instead: `docker build --target full -t elseagent:full .` (or `--target base`). Sizes are
 about 4.2 GB (`base`) and 6.5 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
 `base` stage (Node is the current LTS); the browser is Playwright's headless Chromium.
 
@@ -32,13 +36,10 @@ Python libraries live in the `/opt/tools` virtualenv, which is first on `PATH`, 
 ## Configuration in a container
 
 Everything an agent needs is in one file. Mount it at `/etc/elseagent/config.yaml` (the image's
-default command reads it), turn off Codex's own sandbox, and put credentials under `env:`
-(see [config.md](config.md#env)):
+default command reads it) and put credentials under `env:` (see [config.md](config.md#env)).
+Codex's own sandbox is off by default: the container is the sandbox.
 
 ```yaml
-codex:
-  sandboxMode: danger-full-access
-
 channels:
   slack:
     botToken: xoxb-...
@@ -89,15 +90,14 @@ the container is recreated. Add tools the agent needs permanently to the Dockerf
 ## Docker
 
 ```bash
-docker build --target full -t elseagent:full .
 docker run -d --name reviewer --restart unless-stopped --shm-size=1g \
   -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" \
   -v reviewer-home:/home/elseagent \
-  elseagent:full
+  ghcr.io/elsescape/elseagent-full:latest
 ```
 
 Check a config without connecting to Slack or Telegram:
-`docker run --rm -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" elseagent:full run -c /etc/elseagent/config.yaml --dry-run`.
+`docker run --rm -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" ghcr.io/elsescape/elseagent-full:latest run -c /etc/elseagent/config.yaml --dry-run`.
 
 ## Kubernetes
 
@@ -115,8 +115,6 @@ kind: Secret
 metadata: { name: reviewer }
 stringData:
   config.yaml: |
-    codex:
-      sandboxMode: danger-full-access
     channels:
       slack:
         botToken: xoxb-...
@@ -146,7 +144,7 @@ spec:
       terminationGracePeriodSeconds: 60 # lets running turns tell their threads before stopping
       containers:
         - name: elseagent
-          image: registry.example.com/elseagent:full
+          image: ghcr.io/elsescape/elseagent-full:latest
           volumeMounts:
             - { name: config, mountPath: /etc/elseagent, readOnly: true }
             - { name: home, mountPath: /home/elseagent }
