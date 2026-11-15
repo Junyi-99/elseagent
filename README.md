@@ -2,20 +2,21 @@
 
 # elseagent
 
-A [Codex](https://github.com/openai/codex) agent you chat with in Slack or Telegram. It writes
-code, runs commands and can do tasks on a schedule.
+A [Codex](https://github.com/openai/codex) agent for your Slack. Mention it in a thread or DM it:
+it writes code, runs commands and can do tasks on a schedule. Telegram works too.
 
 ## Quick start
 
-**1. Create a bot**: [Telegram](docs/telegram.md) (2 minutes) or [Slack](docs/slack.md).
+**1. Create the Slack app** from [`slack-app-manifest.yaml`](slack-app-manifest.yaml) and get its
+two tokens: [docs/slack.md](docs/slack.md).
 
 **2. Write `config.yaml`**:
 
 ```yaml
 channels:
-  telegram:
-    botToken: "123456789:AA..."
-    allowedUsers: [] # your user ID goes here, see step 4
+  slack:
+    botToken: xoxb-...
+    appToken: xapp-...
 ```
 
 **3. Run it**:
@@ -28,12 +29,16 @@ docker run -d --name elseagent --shm-size=1g \
 docker logs -f elseagent   # first time: open the link, enter the code to sign in to Codex
 ```
 
-**4. Allow yourself**: send `/start` to the bot, put the user ID it replies with into
-`allowedUsers`, then `docker restart elseagent`. Now message your bot.
+Then mention `@elseagent` in a channel, or send it a DM.
+
+**On Kubernetes**: put the tokens in [`k8s/elseagent.yaml`](k8s/elseagent.yaml) (full image,
+32 GB disk, 4 GB memory), then `kubectl apply -f k8s/elseagent.yaml` and
+`kubectl logs -f elseagent-0` to sign in to Codex.
 
 ## More
 
-- [Configuration](docs/config.md): every option (Slack, the agent's role, limits, `env` for credentials)
+- [Configuration](docs/config.md): the agent's role, limits, `env` for credentials, every option
+- [Telegram](docs/telegram.md): use a Telegram bot instead of (or with) Slack
 - [Usage](docs/usage.md): conversations, agent tools, scheduled tasks, running without Docker
 - [Docker and Kubernetes](docs/docker.md)
 - [Development](docs/development.md)

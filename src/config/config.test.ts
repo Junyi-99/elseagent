@@ -119,6 +119,22 @@ describe("loadConfig", () => {
     expect(loadConfig(frac)).rejects.toThrow("sessionIdleDays must be a whole number");
   });
 
+  test("codex.sandboxMode: workspace-write unless the config or ELSEAGENT_SANDBOX_MODE says", async () => {
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
+    const plain = await writeConfig("sandbox-default.yaml", base);
+    expect((await loadConfig(plain, {})).codex.sandboxMode).toBeUndefined(); // workspace-write
+    const env = { ELSEAGENT_SANDBOX_MODE: "danger-full-access" };
+    expect((await loadConfig(plain, env)).codex.sandboxMode).toBe("danger-full-access");
+    const set = await writeConfig(
+      "sandbox-set.yaml",
+      `codex:\n  sandboxMode: workspace-write\n${base}`,
+    );
+    expect((await loadConfig(set, env)).codex.sandboxMode).toBe("workspace-write");
+    expect(loadConfig(plain, { ELSEAGENT_SANDBOX_MODE: "off" })).rejects.toThrow(
+      "ELSEAGENT_SANDBOX_MODE must be one of",
+    );
+  });
+
   test("workspace expands ~ and resolves relative paths against the config file", async () => {
     const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const rel = await writeConfig("ws-rel.yaml", `workspace: ./ws\n${base}`);

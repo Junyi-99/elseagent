@@ -10,12 +10,12 @@ type CodexConfigValue = NonNullable<CodexOptions["config"]>[string];
 export const DISABLED_FEATURES = { plugins: false, apps: false } as const;
 
 /**
- * Agent-mode settings: act autonomously, never stop to ask. No Codex sandbox by default: the
- * agent is meant to run in a container, which is its sandbox (`codex.sandboxMode` can turn
- * Codex's own sandbox back on).
+ * Agent-mode settings: act autonomously, never stop to ask. Codex's sandbox keeps commands'
+ * writes inside the workspace unless `codex.sandboxMode` says otherwise (the Docker images turn
+ * it off: the container is the sandbox).
  */
 export const AGENT_THREAD_DEFAULTS = {
-  sandboxMode: "danger-full-access",
+  sandboxMode: "workspace-write",
   approvalPolicy: "never",
   skipGitRepoCheck: true,
 } as const satisfies ThreadOptions;

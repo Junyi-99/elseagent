@@ -177,7 +177,9 @@ RUN printf 'export PATH="%s"\n' "$PATH" > /etc/profile.d/00-elseagent-path.sh
 
 USER elseagent
 WORKDIR /home/elseagent/workspace
-ENV HOME=/home/elseagent
+# The container is the sandbox: no Codex sandbox unless the config sets codex.sandboxMode.
+ENV HOME=/home/elseagent \
+    ELSEAGENT_SANDBOX_MODE=danger-full-access
 
 # The workspace defaults to ~/workspace, so one volume holds everything. Set `workspace` in
 # the config to put it elsewhere (e.g. a second volume).

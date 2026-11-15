@@ -11,9 +11,9 @@ elseagent run -c ./config.yaml --dry-run     # check config, codex and workspace
 ```
 
 The agent works in `workspace` from the config (default `~/workspace`, created if missing).
-Codex runs in agent mode: no approval prompts, allowed outside git repositories, and without
-Codex's own sandbox (the container is the sandbox). Running directly on your machine, set
-`codex.sandboxMode: workspace-write` so commands can only write in the workspace. The `codex` CLI must be
+Codex runs in agent mode: no approval prompts, allowed outside git repositories, and in Codex's
+`workspace-write` sandbox, so on your machine commands can only write in the workspace. The
+Docker images turn the sandbox off, since the container is the sandbox. The `codex` CLI must be
 installed (on `PATH`, or set `codex.path`). Without `CODEX_API_KEY` or a saved `codex login`,
 the agent starts a device-code login and prints the link and code to its log.
 

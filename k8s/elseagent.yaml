@@ -1,0 +1,85 @@
+# elseagent on Kubernetes: one agent, one pod, one disk.
+#
+#   1. Put your Slack tokens (and any credentials under env:) in the Secret below.
+#   2. kubectl apply -f k8s/elseagent.yaml
+#   3. kubectl logs -f elseagent-0   # first start: open the link, enter the code to sign in to Codex
+#
+# After changing the Secret: kubectl rollout restart statefulset/elseagent
+# Details: docs/docker.md#kubernetes. For another agent, copy this file and rename `elseagent`.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elseagent
+stringData:
+  config.yaml: |
+    channels:
+      slack:
+        botToken: xoxb-REPLACE-ME
+        appToken: xapp-REPLACE-ME
+    # env:
+    #   GH_TOKEN: ghp_...
+---
+# Required by the StatefulSet (serviceName); the agent serves nothing over the network.
+apiVersion: v1
+kind: Service
+metadata:
+  name: elseagent
+spec:
+  clusterIP: None
+  selector:
+    app: elseagent
+---
+# A StatefulSet with one replica: never two pods of the same agent at once, and the same disk
+# across restarts.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elseagent
+spec:
+  serviceName: elseagent
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elseagent
+  template:
+    metadata:
+      labels:
+        app: elseagent
+    spec:
+      securityContext:
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 60 # lets running turns tell their threads before stopping
+      containers:
+        - name: elseagent
+          image: ghcr.io/elsescape/elseagent-full:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: config
+              mountPath: /etc/elseagent
+              readOnly: true
+            - name: home # workspace, Codex login and sessions, agent state
+              mountPath: /home/elseagent
+            - name: shm # Chromium needs more than the default 64 MB
+              mountPath: /dev/shm
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              memory: 4Gi
+      volumes:
+        - name: config
+          secret:
+            secretName: elseagent
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 32Gi

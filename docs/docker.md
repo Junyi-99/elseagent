@@ -36,7 +36,8 @@ Python libraries live in the `/opt/tools` virtualenv, which is first on `PATH`, 
 
 Everything an agent needs is in one file. Mount it at `/etc/elseagent/config.yaml` (the image's
 default command reads it) and put credentials under `env:` (see [config.md](config.md#env)).
-Codex's own sandbox is off by default: the container is the sandbox.
+Codex's own sandbox is off in the images (`ELSEAGENT_SANDBOX_MODE=danger-full-access`): the
+container is the sandbox.
 
 ```yaml
 channels:
@@ -105,64 +106,18 @@ Socket Mode expects one connection per app and Telegram allows one poller per bo
 once. A StatefulSet guarantees that: it only starts a replacement pod after the old one is gone,
 even when a node becomes unreachable (a Deployment may start a second pod in that case). Its
 volume claim template also gives the pod the same disk across restarts, and keeps the disk when
-the StatefulSet is deleted. The pod is always named `<name>-0` (`kubectl logs reviewer-0`, e.g.
-to read the Codex login code).
+the StatefulSet is deleted.
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata: { name: reviewer }
-stringData:
-  config.yaml: |
-    channels:
-      slack:
-        botToken: xoxb-...
-        appToken: xapp-...
-    env:
-      GH_TOKEN: ghp_...
----
-# Required by the StatefulSet (serviceName); the agent serves nothing over the network.
-apiVersion: v1
-kind: Service
-metadata: { name: reviewer }
-spec:
-  clusterIP: None
-  selector: { app: reviewer }
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata: { name: reviewer }
-spec:
-  serviceName: reviewer
-  replicas: 1
-  selector: { matchLabels: { app: reviewer } }
-  template:
-    metadata: { labels: { app: reviewer } }
-    spec:
-      securityContext: { fsGroup: 1000 }
-      terminationGracePeriodSeconds: 60 # lets running turns tell their threads before stopping
-      containers:
-        - name: elseagent
-          image: ghcr.io/elsescape/elseagent-full:latest
-          volumeMounts:
-            - { name: config, mountPath: /etc/elseagent, readOnly: true }
-            - { name: home, mountPath: /home/elseagent }
-            - { name: shm, mountPath: /dev/shm } # Chromium needs more than the default 64 MB
-          resources:
-            requests: { cpu: "1", memory: 2Gi }
-            limits: { memory: 8Gi }
-      volumes:
-        - name: config
-          secret: { secretName: reviewer }
-        - name: shm
-          emptyDir: { medium: Memory, sizeLimit: 1Gi }
-  volumeClaimTemplates:
-    - metadata: { name: home }
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources: { requests: { storage: 50Gi } }
+[`k8s/elseagent.yaml`](../k8s/elseagent.yaml) is a ready-to-use manifest: a Secret holding the
+config (Slack tokens to fill in), a headless Service (required by the StatefulSet; the agent serves
+nothing over the network) and the StatefulSet: the `full` image, a 32 GB volume on
+`/home/elseagent`, 4 GB of memory, and a memory-backed `/dev/shm` for Chromium.
+
+```bash
+kubectl apply -f k8s/elseagent.yaml
+kubectl logs -f elseagent-0                        # first start: sign in to Codex
+kubectl rollout restart statefulset/elseagent      # after changing the Secret, or to pull `latest`
 ```
 
-The volume mounted on `/home/elseagent` starts empty (see [Volume](#volume)); that is fine.
-For several agents, repeat the three objects with
-a different name and config.
+The pod is always named `<name>-0`. The volume starts empty (see [Volume](#volume)); that is
+fine. For another agent, copy the file and replace `elseagent` with its name.

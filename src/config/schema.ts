@@ -71,13 +71,18 @@ const agentSchema = z.object({
 
 // Only what the user may override. Agent-mode behaviour (sandbox, approvals, git check)
 // is fixed in src/codex.ts; everything else uses the Codex defaults.
+export const SANDBOX_MODES = ["workspace-write", "danger-full-access"] as const;
+/** Environment variable giving the default `codex.sandboxMode` (set in the Docker images). */
+export const SANDBOX_MODE_ENV = "ELSEAGENT_SANDBOX_MODE";
+
 const codexSchema = z.object({
   path: z.string().trim().min(1).optional(),
   model: z.string().trim().min(1).optional(),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
-  // danger-full-access (default): no Codex sandbox; for containers, which are the sandbox.
-  // workspace-write: commands may only write in the workspace, no network (outside a container).
-  sandboxMode: z.enum(["workspace-write", "danger-full-access"]).optional(),
+  // workspace-write (default): commands may only write in the workspace, no network.
+  // danger-full-access: no Codex sandbox; for containers, which are the sandbox. Without a value
+  // here, ELSEAGENT_SANDBOX_MODE sets it (the Docker images set danger-full-access).
+  sandboxMode: z.enum(SANDBOX_MODES).optional(),
 });
 
 const slackSchema = z.object(
