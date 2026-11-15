@@ -10,14 +10,12 @@ on:
     branches: [main]
     # Files that don't go into the images.
     paths-ignore:
-      [
-        "**.md",
-        "docs/**",
-        "assets/**",
-        "k8s/**",
-        "compose.yaml",
-        ".env.example",
-      ]
+      - "**.md"
+      - "docs/**"
+      - "assets/**"
+      - "k8s/**"
+      - "compose.yaml"
+      - ".env.example"
   workflow_dispatch:
 
 concurrency:
