@@ -32,14 +32,33 @@ All options: [config.md](config.md#channelsslack).
 ## In Slack
 
 - The agent replies to `@mentions` in channels, in a thread, and to DMs.
-- Each thread (or a DM's top level) is one conversation with its own Codex session.
-- In channels the agent only acts when `@`-mentioned, but it reads the whole thread: each turn
-  includes the messages posted since its last reply (the whole thread for a new session).
+- Each thread (or a DM's top level) is one conversation with its own Codex session. Each turn
+  includes the thread messages posted since the agent last looked (the whole thread for a new
+  session).
 - Reactions on your message: ⏳ queued, 👀 working (removed when the reply is posted), ❌ failed.
 - While Codex works, the bottom of the thread shows what it is doing ("is running `bun test`…").
 - In a DM, the `/new` slash command starts the DM over with a new session. In channels, start a
   new thread instead.
-- Scheduled tasks post their result as a new message in a channel; `@`-mention the agent in its
-  thread to follow up.
+- Scheduled tasks post their result as a new message in a channel; reply in its thread to follow
+  up.
+
+## Threads
+
+Once the agent is part of a thread (you mentioned it there, or it posted a scheduled result),
+you don't need to mention it again: it reads every reply and decides whether to answer.
+
+- Replies to the agent are answered: the person it just answered can simply reply.
+- Other messages get a quiet look: no reactions, no status. The agent stays silent unless the
+  message is meant for it or it can really help, so people can keep talking among themselves.
+  Messages that mention someone else are left to them.
+- A mention always gets an answer, and is handled first: it doesn't wait behind the agent's
+  quiet look at earlier messages.
+- To keep it out of a thread, say so ("stay out of this thread") or send `!mute`; it then only
+  answers when mentioned. To bring it back, mention it ("follow this thread again") or send
+  `!unmute`.
+- It stops following on its own after about 100 messages without a reply from it, or 10 days
+  without a mention.
+
+To answer only when mentioned everywhere, set `channels.slack.threadReplies: mention`.
 
 See [usage.md](usage.md) for what works the same on every channel.

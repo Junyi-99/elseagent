@@ -13,7 +13,12 @@ import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
 import { fetchThreadContext } from "./context.ts";
 import { SLACK_INSTRUCTIONS } from "./instructions.ts";
-import { fromDirectMessage, fromMention, slashCommandMessage } from "./message.ts";
+import {
+  fromDirectMessage,
+  fromMention,
+  fromThreadMessage,
+  slashCommandMessage,
+} from "./message.ts";
 
 /** Slack's limit for `markdown_text` is 12,000 characters; stay under it. */
 export const SLACK_MARKDOWN_LIMIT = 11_000;
@@ -153,7 +158,9 @@ export async function createSlackBot(
         if (message) await dispatch(message);
       });
       app.message(async ({ message: event }) => {
-        const message = fromDirectMessage(event, identity.userId);
+        const message =
+          fromDirectMessage(event, identity.userId) ??
+          (config.threadReplies === "auto" ? fromThreadMessage(event, identity.userId) : null);
         if (message) await dispatch(message);
       });
       // `/new` in a DM starts it over; it goes through the queue like a message (no ts: there

@@ -32,7 +32,12 @@ describe("loadConfig", () => {
       "xapp-1",
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
-    expect(config.channels.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", join: [] });
+    expect(config.channels.slack).toEqual({
+      botToken: "xoxb-1",
+      appToken: "xapp-1",
+      join: [],
+      threadReplies: "auto",
+    });
     expect(config.maxConcurrent).toBe(32);
     expect(config.codex).toEqual({});
   });

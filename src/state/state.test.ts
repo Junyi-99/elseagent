@@ -32,8 +32,12 @@ describe("migrations", () => {
         "thread_id",
         "last_active_at",
         "last_seen_ts",
+        "muted",
+        "last_addressed_at",
+        "unanswered",
+        "replied_to",
       ]);
-      expect(columns("queue")).toContain("conversation_key");
+      expect(columns("queue")).toContain("mode");
       expect(db.$client.query("SELECT COUNT(*) AS n FROM __drizzle_migrations").get()).toEqual({
         n: EMBEDDED_MIGRATIONS.length,
       });
@@ -155,5 +159,15 @@ describe("MessageQueue", () => {
           .delete()
           .catch(() => {});
     }
+  });
+
+  test("hasNewerPending: a later message of the same conversation is waiting", () => {
+    const queue = new MessageQueue(openStateDb(":memory:"));
+    const base = { channel: "C1", ts: "1.0", threadTs: null, user: "U1", text: "x" };
+    const a = queue.push({ ...base, conversationKey: "A" });
+    queue.push({ ...base, conversationKey: "B" });
+    expect(queue.hasNewerPending("A", a.id)).toBe(false);
+    queue.push({ ...base, conversationKey: "A", mode: "passive" });
+    expect(queue.hasNewerPending("A", a.id)).toBe(true);
   });
 });

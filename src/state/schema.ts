@@ -12,6 +12,17 @@ export const sessions = sqliteTable(
     lastActiveAt: integer("last_active_at").notNull(),
     /** Slack ts of the last message Codex has seen; thread context starts after it. */
     lastSeenTs: text("last_seen_ts"),
+    /**
+     * Thread following (Slack channel threads): the agent reads messages that don't mention it
+     * and decides whether to reply. Muted threads only get replies when it is mentioned.
+     */
+    muted: integer("muted", { mode: "boolean" }).notNull().default(false),
+    /** Unix epoch ms the agent was last mentioned or last replied here. */
+    lastAddressedAt: integer("last_addressed_at"),
+    /** Messages in the thread since the agent's last reply. */
+    unanswered: integer("unanswered").notNull().default(0),
+    /** Who the agent's last reply answered: their next message is likely a reply to it. */
+    repliedTo: text("replied_to"),
   },
   (t) => [index("sessions_last_active").on(t.lastActiveAt)],
 );
@@ -35,6 +46,14 @@ export const queue = sqliteTable(
       .default("pending"),
     /** Set for a scheduled run: there is no Slack message, the result is posted top-level. */
     scheduleId: integer("schedule_id"),
+    /**
+     * direct: addressed to the agent, which answers. followup: a thread reply to the agent's last
+     * answer, without a mention; it answers unless it's a mere acknowledgement. passive: a thread
+     * message not addressed to the agent, which decides whether to reply. Passive runs last.
+     */
+    mode: text("mode", { enum: ["direct", "followup", "passive"] })
+      .notNull()
+      .default("direct"),
   },
   (t) => [
     index("queue_status").on(t.status, t.id),

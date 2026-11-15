@@ -3,6 +3,7 @@ import {
   conversationKey,
   fromDirectMessage,
   fromMention,
+  fromThreadMessage,
   slashCommandMessage,
   stripMention,
 } from "./message.ts";
@@ -113,5 +114,36 @@ describe("conversationKey", () => {
   test("a thread is its own conversation; a DM's top level is one conversation", () => {
     expect(conversationKey({ channel: "C1", threadTs: "1.0" })).toBe("C1:1.0");
     expect(conversationKey({ channel: "D1", threadTs: undefined })).toBe("D1");
+  });
+});
+
+describe("fromThreadMessage", () => {
+  const reply = (fields: Record<string, unknown>) =>
+    dm({ channel: "C1", channel_type: "channel", ts: "300.1", thread_ts: "100.1", ...fields });
+
+  test("a thread reply without a mention of the agent", () => {
+    expect(fromThreadMessage(reply({ text: "looks good" }), BOT)).toEqual({
+      channel: "C1",
+      ts: "300.1",
+      threadTs: "100.1",
+      user: "U1",
+      text: "looks good",
+      isDirect: false,
+      unaddressed: { mentionsOthers: false },
+    });
+    expect(fromThreadMessage(reply({ text: "<@U2> can you?" }), BOT)?.unaddressed).toEqual({
+      mentionsOthers: true,
+    });
+    expect(fromThreadMessage(reply({ channel_type: "group" }), BOT)).not.toBeNull();
+  });
+
+  test("ignores mentions of the agent (app_mention handles them), roots, DMs, bots, edits", () => {
+    expect(fromThreadMessage(reply({ text: `<@${BOT}> hi` }), BOT)).toBeNull();
+    expect(fromThreadMessage(reply({ thread_ts: undefined }), BOT)).toBeNull();
+    expect(fromThreadMessage(reply({ thread_ts: "300.1" }), BOT)).toBeNull(); // the root
+    expect(fromThreadMessage(reply({ channel_type: "im" }), BOT)).toBeNull();
+    expect(fromThreadMessage(reply({ bot_id: "B1" }), BOT)).toBeNull();
+    expect(fromThreadMessage(reply({ user: BOT }), BOT)).toBeNull();
+    expect(fromThreadMessage(reply({ subtype: "message_changed" }), BOT)).toBeNull();
   });
 });

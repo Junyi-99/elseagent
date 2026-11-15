@@ -128,4 +128,38 @@ describe("Scheduler", () => {
     expect(scheduler.runningCount).toBe(0);
     expect(scheduler.submit(msg("C"))).toEqual({ status: "rejected" });
   });
+
+  test("direct messages run before passive ones", async () => {
+    const { scheduler, started, finish } = setup(1);
+    scheduler.submit(msg("busy"));
+    scheduler.submit({ ...msg("P"), mode: "passive" });
+    scheduler.submit(msg("D"));
+    await finish("busy");
+    expect(started).toEqual(["busy", "D"]);
+    await finish("D");
+    expect(started).toEqual(["busy", "D", "P"]);
+  });
+
+  test("a direct message stops a passive turn in its conversation (superseded)", async () => {
+    const queue = new MessageQueue(openStateDb(":memory:"));
+    const reasons: unknown[] = [];
+    const scheduler = new Scheduler(
+      queue,
+      (_m, signal) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            reasons.push(signal.reason);
+            resolve();
+          });
+        }),
+      { maxConcurrent: 4, maxQueue: 10 },
+    );
+    scheduler.submit({ ...msg("T"), mode: "passive" });
+    scheduler.submit({ ...msg("other"), mode: "passive" });
+    scheduler.submit(msg("T", "mention"));
+    await Bun.sleep(0);
+    expect(reasons).toEqual([{ kind: "superseded" }]); // only T's passive turn
+    expect(scheduler.runningTurns().map((t) => t.message.text)).toEqual(["other", "mention"]);
+    await scheduler.stop();
+  });
 });

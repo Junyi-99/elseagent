@@ -23,6 +23,11 @@ export interface IncomingMessage {
   /** Text with the agent's own @mention removed. */
   text: string;
   isDirect: boolean;
+  /**
+   * Set for a thread message that doesn't mention the agent (Slack channel threads): whether
+   * the agent answers depends on whether it follows the thread. Absent: addressed to the agent.
+   */
+  unaddressed?: { mentionsOthers: boolean };
 }
 
 /**

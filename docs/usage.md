@@ -23,7 +23,8 @@ Slack and Telegram ([slack.md](slack.md), [telegram.md](telegram.md)) work the s
 configured, one agent answers in both, sharing its queue and limits.
 
 - Each conversation (a Slack thread, a Telegram topic, a DM) maps to one Codex session.
-  Follow-ups continue that session; Codex keeps the history.
+  Follow-ups continue that session; Codex keeps the history. In Slack threads the agent is part
+  of, follow-ups don't need a mention ([slack.md](slack.md#threads)).
 - Codex gets built-in instructions for working in chat (ask instead of guessing, end the turn
   to wait for an answer, chat-friendly Markdown); `prompt` is added after them.
 - When Codex needs a decision it can offer choices, shown as buttons. Clicking one sends the

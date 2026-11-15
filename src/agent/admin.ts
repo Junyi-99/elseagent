@@ -14,7 +14,7 @@ export interface Caller {
 export interface AdminDeps {
   scheduler: Pick<Scheduler, "runningTurns" | "cancel">;
   queue: Pick<MessageQueue, "pendingCount" | "listPending" | "removePending">;
-  sessions: Pick<SessionStore, "list" | "count" | "forget">;
+  sessions: Pick<SessionStore, "list" | "count" | "forget" | "addressed" | "setMuted">;
   schedules: Pick<ScheduleStore, "list" | "get" | "delete" | "count">;
   scheduleRunner: Pick<ScheduleRunner, "create" | "runNow">;
   /** Make sure the bot can post in `ref` (name or ID) and return the channel ID. */
@@ -80,6 +80,8 @@ export class Admin {
       conversation: s.conversationKey,
       codexThreadId: s.threadId,
       lastActive: iso(s.lastActiveAt),
+      muted: s.muted,
+      messagesSinceReply: s.unanswered,
     }));
   }
 
@@ -97,6 +99,21 @@ export class Admin {
     const removed = this.deps.queue.removePending(id);
     if (!removed) throw new AdminError(`No queued message with id ${id} (it may have started).`);
     return `Removed queued message ${id} from ${removed.conversationKey}.`;
+  }
+
+  /**
+   * Follow a thread again (read replies that don't mention the agent) or stop following it
+   * (only answer mentions). Defaults to the caller's conversation.
+   */
+  threadFollow(follow: boolean, caller: Caller, conversation = caller.conversationKey): string {
+    if (!conversation.includes(":") || conversation.startsWith("tg:")) {
+      throw new AdminError("Only Slack channel threads can be followed or muted.");
+    }
+    this.deps.sessions.addressed(conversation);
+    this.deps.sessions.setMuted(conversation, !follow);
+    return follow
+      ? `Following ${conversation} again: replies there reach the agent without a mention.`
+      : `Stopped following ${conversation}: the agent only answers mentions there now.`;
   }
 
   forgetSession(conversation: string): string {

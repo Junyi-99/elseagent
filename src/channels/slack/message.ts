@@ -41,6 +41,29 @@ export function fromDirectMessage(event: MessageEvent, botUserId: string): Incom
   };
 }
 
+/**
+ * A reply in a channel thread that doesn't mention the agent: it may be following the thread
+ * (see agent/follow.ts). Thread roots, edits, bots and messages mentioning the agent (handled
+ * through `app_mention`) are ignored.
+ */
+export function fromThreadMessage(event: MessageEvent, botUserId: string): IncomingMessage | null {
+  if (event.subtype !== undefined) return null;
+  if (event.channel_type !== "channel" && event.channel_type !== "group") return null;
+  if (!event.thread_ts || event.thread_ts === event.ts) return null;
+  if (event.bot_id || !event.user || event.user === botUserId) return null;
+  const text = event.text ?? "";
+  if (text.includes(`<@${botUserId}>`)) return null;
+  return {
+    channel: event.channel,
+    ts: event.ts,
+    threadTs: event.thread_ts,
+    user: event.user,
+    text: text.trim(),
+    isDirect: false,
+    unaddressed: { mentionsOthers: /<@[UW][A-Z0-9]+>/.test(text) },
+  };
+}
+
 /** A slash command in a DM, as a message without a Slack message behind it (empty ts). */
 export function slashCommandMessage(channel: string, user: string, text: string): IncomingMessage {
   return { channel, ts: "", threadTs: undefined, user, text, isDirect: true };

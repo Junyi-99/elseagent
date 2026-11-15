@@ -1,12 +1,20 @@
 import type { MessageQueue, NewQueuedMessage, QueuedMessage } from "../state/index.ts";
 
-/** Why a running turn was stopped; carried as the abort signal's `reason`. */
-export type StopReason = { kind: "shutdown" } | { kind: "cancelled"; by: string };
+/**
+ * Why a running turn was stopped; carried as the abort signal's `reason`. `superseded`: a passive
+ * turn made way for a direct message in the same conversation, which sees it as context.
+ */
+export type StopReason =
+  | { kind: "shutdown" }
+  | { kind: "cancelled"; by: string }
+  | { kind: "superseded" };
 
 export function stopReason(signal: AbortSignal): StopReason | null {
   if (!signal.aborted) return null;
   const reason = signal.reason as Partial<StopReason> | undefined;
-  return reason?.kind === "cancelled" ? (reason as StopReason) : { kind: "shutdown" };
+  return reason?.kind === "cancelled" || reason?.kind === "superseded"
+    ? (reason as StopReason)
+    : { kind: "shutdown" };
 }
 
 /** Handles one message (one Codex turn). `signal` aborts on shutdown or cancellation. */
@@ -61,11 +69,24 @@ export class Scheduler {
     return [...this.running.values()].map(({ message, startedAt }) => ({ message, startedAt }));
   }
 
-  /** Queue a message and start it right away if a slot (and its conversation) is free. */
+  /**
+   * Queue a message and start it right away if a slot (and its conversation) is free. A direct
+   * message stops a passive turn running in its conversation, so it doesn't wait for it.
+   */
   submit(message: NewQueuedMessage): SubmitResult {
     if (this.shutdown.signal.aborted) return { status: "rejected" };
     if (this.queue.pendingCount() >= this.options.maxQueue) return { status: "rejected" };
     const { id } = this.queue.push(message);
+    if (message.mode !== "passive") {
+      for (const turn of this.running.values()) {
+        if (
+          turn.message.conversationKey === message.conversationKey &&
+          turn.message.mode === "passive"
+        ) {
+          turn.controller.abort({ kind: "superseded" } satisfies StopReason);
+        }
+      }
+    }
     this.pump();
     return this.running.has(id)
       ? { status: "started" }

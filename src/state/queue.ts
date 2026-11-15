@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, lte, notExists, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, lte, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { StateDb } from "./db.ts";
 import { queue } from "./schema.ts";
@@ -14,10 +14,13 @@ export interface QueuedMessage {
   text: string;
   /** Set for a scheduled run (no Slack message to reply to). */
   scheduleId: number | null;
+  /** How sure it is the message is for the agent (see the queue table's `mode`). */
+  mode: "direct" | "followup" | "passive";
 }
 
-export type NewQueuedMessage = Omit<QueuedMessage, "id" | "scheduleId"> & {
+export type NewQueuedMessage = Omit<QueuedMessage, "id" | "scheduleId" | "mode"> & {
   scheduleId?: number | null;
+  mode?: QueuedMessage["mode"];
 };
 
 const columns = {
@@ -29,6 +32,7 @@ const columns = {
   user: queue.user,
   text: queue.text,
   scheduleId: queue.scheduleId,
+  mode: queue.mode,
 };
 
 /**
@@ -58,8 +62,9 @@ export class MessageQueue {
   }
 
   /**
-   * Atomically take the oldest pending message whose conversation has nothing running, and mark
-   * it running. Returns null when nothing is eligible.
+   * Atomically take the next pending message whose conversation has nothing running, and mark
+   * it running: passive messages last, oldest first otherwise. Returns null
+   * when nothing is eligible.
    */
   claimNext(): QueuedMessage | null {
     const running = alias(queue, "running");
@@ -82,7 +87,7 @@ export class MessageQueue {
           ),
         ),
       )
-      .orderBy(asc(queue.id))
+      .orderBy(sql`${queue.mode} = 'passive'`, asc(queue.id))
       .limit(1);
     return (
       this.db
@@ -91,6 +96,24 @@ export class MessageQueue {
         .where(inArray(queue.id, next))
         .returning(columns)
         .get() ?? null
+    );
+  }
+
+  /** Whether a later message of the conversation is waiting (it will see this one as context). */
+  hasNewerPending(conversationKey: string, id: number): boolean {
+    return (
+      this.db
+        .select({ id: queue.id })
+        .from(queue)
+        .where(
+          and(
+            eq(queue.conversationKey, conversationKey),
+            eq(queue.status, "pending"),
+            gt(queue.id, id),
+          ),
+        )
+        .limit(1)
+        .get() !== undefined
     );
   }
 

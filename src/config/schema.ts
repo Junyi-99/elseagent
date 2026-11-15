@@ -94,6 +94,9 @@ const slackSchema = z.object(
     appToken: requiredString("channels.slack.appToken"),
     // Public Slack channels to join at startup, by name (with or without #) or ID.
     join: z.array(z.string().trim().min(1)).default([]),
+    // auto: in threads it is part of, the agent reads every reply and decides whether to answer.
+    // mention: it only answers when mentioned.
+    threadReplies: z.enum(["auto", "mention"]).default("auto"),
   },
   { error: "channels.slack must be a section with botToken and appToken" },
 );

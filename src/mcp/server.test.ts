@@ -18,6 +18,7 @@ const turns: RunningTurn[] = [1, 2].map((id) => ({
     user: `U${id}`,
     text: `message ${id}`,
     scheduleId: null,
+    mode: "direct" as const,
   },
   startedAt: Date.now() - 65_000,
 }));
@@ -102,6 +103,7 @@ describe("elseagent MCP server", () => {
       "schedule_list",
       "schedule_run_now",
       "status",
+      "thread_follow",
     ]);
     await client.close();
   });
@@ -198,6 +200,20 @@ describe("elseagent MCP server", () => {
     const [first] = (await callTool(client, "list_queue")).json();
     expect((await callTool(client, "remove_queued", { id: first.id })).isError).toBe(false);
     expect((await callTool(client, "list_queue")).json()).toEqual([]);
+    await client.close();
+  });
+
+  test("thread_follow mutes and unmutes the caller's thread (or another one)", async () => {
+    const client = await connect(1);
+    const off = await callTool(client, "thread_follow", { follow: false });
+    expect(off.text).toContain("Stopped following C1:1.0");
+    expect(sessions.followState("C1:1.0")?.muted).toBe(true);
+    await callTool(client, "thread_follow", { follow: true });
+    expect(sessions.followState("C1:1.0")?.muted).toBe(false);
+    await callTool(client, "thread_follow", { follow: false, conversation: "C1:2.0" });
+    expect(sessions.followState("C1:2.0")?.muted).toBe(true);
+    const dm = await callTool(client, "thread_follow", { follow: false, conversation: "D1" });
+    expect(dm.isError).toBe(true);
     await client.close();
   });
 });

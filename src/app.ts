@@ -1,13 +1,14 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Admin } from "./agent/admin.ts";
+import { createMessageHandler } from "./agent/inbox.ts";
 import { Scheduler } from "./agent/scheduler.ts";
 import { ScheduleRunner } from "./agent/schedules.ts";
 import { createTurnRunner, REACTIONS } from "./agent/turn.ts";
 import { Channels } from "./channels/registry.ts";
 import { createSlackBot } from "./channels/slack/index.ts";
 import { createTelegramBot } from "./channels/telegram/index.ts";
-import { type Channel, conversationKey, type MessageHandler } from "./channels/types.ts";
+import type { Channel } from "./channels/types.ts";
 import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
 import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
 import { type Config, ConfigError } from "./config/index.ts";
@@ -115,6 +116,7 @@ export async function startApp(
           shellEnv: integrations.env,
         }),
       sessions,
+      queue,
       threadOptions,
       replyTo: channels.replyTo,
       threadContext: channels.threadContext,
@@ -167,25 +169,7 @@ export async function startApp(
     }
   }
 
-  const onMessage: MessageHandler = async (message, reply) => {
-    if (!message.text) {
-      await reply.post("Hi! Tell me what you need, and I'll get to work.");
-      return;
-    }
-    const result = scheduler.submit({
-      conversationKey: conversationKey(message),
-      channel: message.channel,
-      ts: message.ts,
-      threadTs: message.threadTs ?? null,
-      user: message.user,
-      text: message.text,
-    });
-    if (result.status === "queued" && message.ts) {
-      await reply.react(REACTIONS.queued);
-    } else if (result.status === "rejected") {
-      await reply.post("I'm too busy right now. Please try again in a while.");
-    }
-  };
+  const onMessage = createMessageHandler({ scheduler, sessions });
 
   const started: Channel[] = [];
   for (const channel of channels.all) {

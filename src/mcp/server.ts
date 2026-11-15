@@ -87,6 +87,24 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
     ({ id }) => call(() => admin.removeQueued(id)),
   );
   server.registerTool(
+    "thread_follow",
+    {
+      description:
+        "Stop following a Slack thread (follow=false: only answer when mentioned there) or follow " +
+        "it again (follow=true: read every reply and decide whether to answer). Use it when someone " +
+        "asks you to stay out of a thread or to come back. Defaults to the current thread.",
+      inputSchema: {
+        follow: z.boolean(),
+        conversation: z
+          .string()
+          .optional()
+          .describe("A conversation from list_sessions; defaults to the current one"),
+      },
+      annotations: { openWorldHint: false },
+    },
+    ({ follow, conversation }) => call(() => admin.threadFollow(follow, caller, conversation)),
+  );
+  server.registerTool(
     "forget_session",
     {
       description: "Drop a conversation's Codex session; its next message starts a new session.",

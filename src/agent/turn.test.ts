@@ -8,6 +8,7 @@ import {
   formatInput,
   isNewSessionCommand,
   NEW_SESSION_REPLY,
+  PASSIVE_LABEL,
   REACTIONS,
   type TurnDeps,
 } from "./turn.ts";
@@ -27,9 +28,11 @@ const message = (
   user: "U1",
   text,
   scheduleId: null,
+  mode: "direct",
 });
 
-const json = (message: string, choices: string[] = []) => JSON.stringify({ message, choices });
+const json = (message: string, choices: string[] = [], reply = true) =>
+  JSON.stringify({ reply, message, choices });
 
 /**
  * Fake Codex: records calls; streams `items` as started, then `behave` decides the final
@@ -78,6 +81,7 @@ function setup(
     turnTimeoutMs = 1_000,
     context = { messages: [], omitted: 0 } as ThreadContext,
     items = [] as ThreadItem[],
+    newerPending = false,
   } = {},
 ) {
   const { codex, calls } = fakeCodex(behave, items);
@@ -101,6 +105,7 @@ function setup(
     statusOptions: { minIntervalMs: 0, refreshMs: 60_000 },
     sessions,
     threadOptions: {},
+    queue: { hasNewerPending: () => newerPending },
     replyTo: (target) => {
       targets.push(target);
       return reply;
@@ -212,6 +217,7 @@ describe("/new", () => {
     user: "U1",
     text: "/new",
     scheduleId: null,
+    mode: "direct",
   });
   const dm = (text: string, ts: string): QueuedMessage => ({
     ...command(),
@@ -280,6 +286,7 @@ describe("scheduled runs", () => {
     user: "U1",
     text: 'Scheduled task "daily" (#3): check CI',
     scheduleId: 3,
+    mode: "direct",
   });
 
   test("start a new session, post top-level, and map the posted message's thread", async () => {
@@ -338,15 +345,90 @@ describe("cancellation", () => {
 describe("formatInput", () => {
   test("is just the message when there is no new context", () => {
     expect(
-      formatInput({ user: "U9", text: "hi", scheduleId: null }, { messages: [], omitted: 0 }),
+      formatInput(
+        { user: "U9", text: "hi", scheduleId: null, mode: "direct" },
+        { messages: [], omitted: 0 },
+      ),
     ).toBe("<@U9>: hi");
   });
 
   test("notes omitted messages", () => {
     const input = formatInput(
-      { user: "U9", text: "hi", scheduleId: null },
+      { user: "U9", text: "hi", scheduleId: null, mode: "direct" },
       { messages: [{ user: "U1", text: "a" }], omitted: 3 },
     );
     expect(input).toContain("(3 earlier messages omitted)\n<@U1>: a");
+  });
+});
+
+describe("passive messages (thread replies that don't mention the agent)", () => {
+  const passive = (ts = "3.0"): QueuedMessage => ({
+    ...message("C1:1.0", "we could also cache it", ts),
+    user: "U2",
+    mode: "passive",
+  });
+
+  test("Codex may stay silent: nothing posted, no reactions or status, the message is seen", async () => {
+    const { run, calls, posts, reactions, statuses, sessions } = setup(async () =>
+      json("", [], false),
+    );
+    sessions.addressed("C1:1.0");
+    await run(passive(), never);
+    expect(calls[0]?.input).toContain(PASSIVE_LABEL);
+    expect(posts).toEqual([]);
+    expect(reactions).toEqual([]);
+    expect(statuses).toEqual([]);
+    expect(sessions.get("C1:1.0", DAY)?.lastSeenTs).toBe("3.0");
+  });
+
+  test("when it does reply, the thread counts as answered for that person", async () => {
+    const { run, posts, sessions } = setup(async () => json("Caching won't help here: …"));
+    sessions.addressed("C1:1.0");
+    sessions.noteUnanswered("C1:1.0");
+    await run(passive(), never);
+    expect(posts).toEqual([{ text: "Caching won't help here: …", choices: [] }]);
+    expect(sessions.followState("C1:1.0")).toMatchObject({ unanswered: 0, repliedTo: "U2" });
+  });
+
+  test("skipped without running Codex when already seen or a later message is queued", async () => {
+    const seen = setup(async () => json("x"));
+    seen.sessions.touch("C1:1.0", "thread-9", "5.0");
+    await seen.run(passive("4.0"), never);
+    const newer = setup(async () => json("x"), { newerPending: true });
+    await newer.run(passive(), never);
+    expect([...seen.calls, ...newer.calls]).toEqual([]);
+  });
+
+  test("failures stay out of the thread", async () => {
+    const { run, posts, reactions } = setup(async () => {
+      throw new Error("boom");
+    });
+    await run(passive(), never);
+    expect(posts).toEqual([]);
+    expect(reactions).toEqual([]);
+  });
+
+  test("superseded by a direct message: silent, and the message stays unseen", async () => {
+    const { run, posts, sessions } = setup(
+      (_input, signal) =>
+        new Promise((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("aborted"))),
+        ),
+    );
+    sessions.touch("C1:1.0", "thread-9", "2.0");
+    const controller = new AbortController();
+    const turn = run(passive(), controller.signal);
+    await Bun.sleep(5);
+    controller.abort({ kind: "superseded" });
+    await turn;
+    expect(posts).toEqual([]);
+    // The direct turn will get the passive message as thread context.
+    expect(sessions.get("C1:1.0", DAY)?.lastSeenTs).toBe("2.0");
+  });
+
+  test("a direct message is always answered, even if Codex says reply: false", async () => {
+    const { run, posts } = setup(async () => json("Done.", [], false));
+    await run(message(), never);
+    expect(posts).toEqual([{ text: "Done.", choices: [] }]);
   });
 });

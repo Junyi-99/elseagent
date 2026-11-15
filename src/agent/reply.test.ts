@@ -3,15 +3,25 @@ import { parseReply } from "./reply.ts";
 
 describe("parseReply", () => {
   test("reads the structured reply", () => {
-    expect(parseReply('{"message":"Pick one","choices":["a","b"]}')).toEqual({
+    expect(parseReply('{"reply":true,"message":"Pick one","choices":["a","b"]}')).toEqual({
+      reply: true,
       message: "Pick one",
       choices: ["a", "b"],
     });
   });
 
   test("falls back to plain text when the reply is not the expected JSON", () => {
-    expect(parseReply("just text")).toEqual({ message: "just text", choices: [] });
-    expect(parseReply('{"text":"x"}')).toEqual({ message: '{"text":"x"}', choices: [] });
+    expect(parseReply("just text")).toEqual({ reply: true, message: "just text", choices: [] });
+    expect(parseReply('{"text":"x"}')).toEqual({
+      reply: true,
+      message: '{"text":"x"}',
+      choices: [],
+    });
+  });
+
+  test("reply: false only when Codex says so explicitly", () => {
+    expect(parseReply('{"reply":false,"message":"","choices":[]}').reply).toBe(false);
+    expect(parseReply('{"message":"hi","choices":[]}').reply).toBe(true);
   });
 
   test("cleans choices: trims, drops blanks and duplicates, caps count and length", () => {
