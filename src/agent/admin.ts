@@ -1,3 +1,4 @@
+import { TELEGRAM_PREFIX } from "../channels/types.ts";
 import type { MessageQueue, Schedule, ScheduleStore, SessionStore } from "../state/index.ts";
 import { checkTimezone, formatTime, ScheduleError } from "./cron.ts";
 import type { Scheduler } from "./scheduler.ts";
@@ -142,7 +143,10 @@ export class Admin {
     const schedule = this.deps.schedules.get(id);
     if (!schedule) throw new AdminError(`No schedule with id ${id}.`);
     if (!this.deps.scheduleRunner.runNow(schedule)) throw new AdminError("The queue is full.");
-    return `Queued a run of schedule #${id} "${schedule.name}"; its result is posted in <#${schedule.channel}>.`;
+    const where = schedule.channel.startsWith(TELEGRAM_PREFIX)
+      ? "a new topic of the Telegram chat"
+      : `<#${schedule.channel}>`;
+    return `Queued a run of schedule #${id} "${schedule.name}"; its result is posted in ${where}.`;
   }
 
   private describe(s: Schedule) {

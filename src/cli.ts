@@ -8,7 +8,7 @@ import { CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, expandHome, loadConfig } from "./
 export function buildProgram(): Command {
   const program = new Command()
     .name("elseagent")
-    .description("Codex agent for Slack")
+    .description("Codex agent for Slack and Telegram")
     .version(pkg.version ?? "0.0.0");
 
   program
@@ -54,7 +54,9 @@ export function buildProgram(): Command {
       await mkdir(dirname(out), { recursive: true });
       await Bun.write(out, CONFIG_TEMPLATE);
       console.log(`Wrote ${out}`);
-      console.log("Fill in slack.botToken and slack.appToken, then run:");
+      console.log(
+        "Fill in channels.slack.botToken and appToken (or set up channels.telegram), then run:",
+      );
       const isDefault = out === resolve(expandHome(DEFAULT_CONFIG_PATH));
       console.log(`  elseagent run ${isDefault ? "" : `-c ${out} `}[working-directory]`);
     });

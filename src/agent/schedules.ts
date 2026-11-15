@@ -9,7 +9,7 @@ export interface CreateScheduleInput {
   name: string;
   cron: string;
   timezone: string;
-  /** Channel ID the bot can already post in. */
+  /** Channel ID the agent can already post in (Slack ID, or `tg:<chat id>`). */
   channel: string;
   prompt: string;
   createdBy: string;
@@ -19,8 +19,8 @@ export interface CreateScheduleInput {
 export function scheduledTaskInput(schedule: Schedule, at: number): string {
   return [
     `Scheduled task "${schedule.name}" (#${schedule.id}, created by <@${schedule.createdBy}>),`,
-    `running at ${formatTime(at, schedule.timezone)}. Your reply is posted as a new message in`,
-    "the channel; people may follow up in its thread. Task:",
+    `running at ${formatTime(at, schedule.timezone)}. Your reply is posted as a new message`,
+    "(in Telegram, a new topic); people may follow up in its thread. Task:",
     "",
     schedule.prompt,
   ].join("\n");

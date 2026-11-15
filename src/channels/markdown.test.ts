@@ -3,7 +3,7 @@ import { splitMarkdown } from "./markdown.ts";
 
 describe("splitMarkdown", () => {
   test("keeps short text as one message", () => {
-    expect(splitMarkdown("  hello  ")).toEqual(["hello"]);
+    expect(splitMarkdown("  hello  ", 100)).toEqual(["hello"]);
   });
 
   test("splits on paragraph boundaries within the limit", () => {

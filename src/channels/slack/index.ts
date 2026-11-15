@@ -1,18 +1,21 @@
 import { App, type BlockButtonAction, LogLevel, SocketModeReceiver, webApi } from "@slack/bolt";
-import { ConfigError, type SlackConfig } from "../config/index.ts";
+import { ConfigError, type SlackConfig } from "../../config/index.ts";
+import { splitMarkdown } from "../markdown.ts";
+import {
+  type Channel,
+  type IncomingMessage,
+  NO_CONTEXT,
+  type Reply,
+  type ReplyTarget,
+  TELEGRAM_PREFIX,
+} from "../types.ts";
 import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
-import { fetchThreadContext, type ThreadContext } from "./context.ts";
-import { splitMarkdown } from "./markdown.ts";
-import {
-  fromDirectMessage,
-  fromMention,
-  type IncomingMessage,
-  slashCommandMessage,
-} from "./message.ts";
+import { fetchThreadContext } from "./context.ts";
+import { fromDirectMessage, fromMention, slashCommandMessage } from "./message.ts";
 
-export type { ContextMessage, ThreadContext } from "./context.ts";
-export { conversationKey, type IncomingMessage } from "./message.ts";
+/** Slack's limit for `markdown_text` is 12,000 characters; stay under it. */
+export const SLACK_MARKDOWN_LIMIT = 11_000;
 
 /** How long Socket Mode waits for a pong (and for Slack's pings) before reconnecting. */
 export const SOCKET_PING_TIMEOUT_MS = 30_000;
@@ -25,53 +28,13 @@ export interface SlackIdentity {
   teamId: string;
 }
 
-/** Where a reply goes: the conversation of a message, and the message itself for reactions. */
-export interface ReplyTarget {
-  channel: string;
-  /** The message to react to. */
-  ts: string;
-  /** Thread to post in; undefined/null posts top-level (DMs). */
-  threadTs?: string | null;
-}
-
-/** Ways to respond to a message. */
-export interface Reply {
-  /**
-   * Post Markdown in the conversation, split into several messages if it is long. With
-   * `choices`, the last message shows them as buttons; a click arrives as a new message.
-   * Returns the ts of the first message posted (where a new thread would start).
-   */
-  post(markdown: string, choices?: string[]): Promise<string | undefined>;
-  /** Add an emoji reaction to the message, e.g. "eyes". Errors are ignored. */
-  react(name: string): Promise<void>;
-  /** Remove one of our reactions from the message. Errors are ignored. */
-  unreact(name: string): Promise<void>;
-  /**
-   * Show a loading status at the bottom of the thread ("is running tests…"); empty clears it.
-   * Slack clears it when we post, or after 2 minutes. No-op outside a thread; errors ignored.
-   */
-  setStatus(status: string): Promise<void>;
-}
-
-export type MessageHandler = (message: IncomingMessage, reply: Reply) => Promise<void>;
-
-export interface SlackBot {
+export interface SlackBot extends Channel {
+  platform: "slack";
   identity: SlackIdentity;
-  /** Reply to a message, including one received before a restart. */
-  replyTo(target: ReplyTarget): Reply;
-  /** Thread messages strictly between `afterTs` (null: thread start) and `beforeTs`, minus ours. */
-  threadContext(args: {
-    channel: string;
-    threadTs: string;
-    afterTs: string | null;
-    beforeTs: string;
-  }): Promise<ThreadContext>;
-  /** Make sure the bot can post in a channel (joining public ones); returns its ID. */
-  ensureChannel(ref: string): Promise<string>;
-  /** Connect, join the configured channels, and start delivering messages to `onMessage`. */
-  start(onMessage: MessageHandler): Promise<void>;
-  stop(): Promise<void>;
 }
+
+/** Telegram's channel IDs; everything else is Slack's. */
+const isOtherPlatform = (channel: string) => channel.startsWith(TELEGRAM_PREFIX);
 
 /**
  * Prepare a Socket Mode connection. Verifies the bot token up front (auth.test) so bad
@@ -114,7 +77,7 @@ export async function createSlackBot(
 
   const replyTo = (target: ReplyTarget): Reply => ({
     async post(markdown, choices = []) {
-      const parts = splitMarkdown(markdown);
+      const parts = splitMarkdown(markdown, SLACK_MARKDOWN_LIMIT);
       let first: string | undefined;
       for (const [i, part] of parts.entries()) {
         // Continuation parts of a new top-level message go into its thread.
@@ -159,9 +122,19 @@ export async function createSlackBot(
   });
 
   return {
+    platform: "slack",
+    label: `slack @${identity.name} (${identity.userId})`,
     identity,
+    owns: (channel) => !isOtherPlatform(channel),
     replyTo,
-    threadContext: (args) => fetchThreadContext(client, args, identity.userId),
+    threadContext: (message, afterTs) =>
+      message.threadTs
+        ? fetchThreadContext(
+            client,
+            { channel: message.channel, threadTs: message.threadTs, afterTs, beforeTs: message.ts },
+            identity.userId,
+          )
+        : Promise.resolve(NO_CONTEXT), // top-level DM: nothing to add
     ensureChannel: (ref) => ensureChannel(client, ref),
     async start(onMessage) {
       const dispatch = async (message: IncomingMessage) => {
@@ -218,7 +191,7 @@ export async function createSlackBot(
         });
       });
       await app.start();
-      await joinChannels(app.client, config.channels, logger);
+      await joinChannels(app.client, config.join, logger);
     },
     async stop() {
       await app.stop();

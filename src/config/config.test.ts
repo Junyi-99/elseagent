@@ -32,8 +32,8 @@ describe("loadConfig", () => {
       "xapp-1",
     );
     const config = await loadConfig(await writeConfig("filled.yaml", filled));
-    expect(config.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", channels: [] });
-    expect(config.agent.maxConcurrent).toBe(16);
+    expect(config.channels.slack).toEqual({ botToken: "xoxb-1", appToken: "xapp-1", join: [] });
+    expect(config.agent.maxConcurrent).toBe(32);
     expect(config.codex).toEqual({});
   });
 
@@ -41,21 +41,48 @@ describe("loadConfig", () => {
     const path = await writeConfig("template.yaml", CONFIG_TEMPLATE);
     const err = await loadConfig(path).catch((e) => e);
     expect(err).toBeInstanceOf(ConfigError);
-    expect(err.message).toContain("slack.botToken is still the placeholder");
-    expect(err.message).toContain("slack.appToken is still the placeholder");
+    expect(err.message).toContain("channels.slack.botToken is still the placeholder");
+    expect(err.message).toContain("channels.slack.appToken is still the placeholder");
   });
 
-  test("reports missing tokens and a missing slack section", async () => {
-    const empty = await writeConfig("empty-tokens.yaml", 'slack:\n  botToken: ""\n');
+  test("reports missing tokens and a missing channel", async () => {
+    const empty = await writeConfig("empty-tokens.yaml", 'channels:\n  slack:\n    botToken: ""\n');
     const err = await loadConfig(empty).catch((e) => e);
-    expect(err.message).toContain("slack.botToken is required");
-    expect(err.message).toContain("slack.appToken is required");
-    const noSlack = await writeConfig("no-slack.yaml", "agent:\n  maxConcurrent: 2\n");
-    expect(loadConfig(noSlack)).rejects.toThrow("slack section is required");
+    expect(err.message).toContain("channels.slack.botToken is required");
+    expect(err.message).toContain("channels.slack.appToken is required");
+    const none = await writeConfig("no-channel.yaml", "agent:\n  maxConcurrent: 2\n");
+    expect(loadConfig(none)).rejects.toThrow("configure at least one channel");
+    const emptySection = await writeConfig("empty-slack.yaml", "channels:\n  slack:\n");
+    expect(loadConfig(emptySection)).rejects.toThrow("configure at least one channel");
+  });
+
+  test("telegram alone is enough; allowedUsers are kept as strings", async () => {
+    const path = await writeConfig(
+      "telegram.yaml",
+      'channels:\n  telegram:\n    botToken: "123:abc"\n    allowedUsers: [42, "43"]\n',
+    );
+    const config = await loadConfig(path);
+    expect(config.channels.slack).toBeUndefined();
+    expect(config.channels.telegram).toEqual({ botToken: "123:abc", allowedUsers: ["42", "43"] });
+    const bad = await writeConfig(
+      "telegram-bad.yaml",
+      "channels:\n  telegram:\n    botToken: x\n    allowedUsers: [alice]\n",
+    );
+    expect(loadConfig(bad)).rejects.toThrow("numeric Telegram user IDs");
+  });
+
+  test("slack and telegram together", async () => {
+    const path = await writeConfig(
+      "both.yaml",
+      "channels:\n  slack:\n    botToken: a\n    appToken: b\n  telegram:\n    botToken: c\n",
+    );
+    const config = await loadConfig(path);
+    expect(config.channels.slack?.botToken).toBe("a");
+    expect(config.channels.telegram).toEqual({ botToken: "c", allowedUsers: [] });
   });
 
   test("agent.prompt: multi-line is kept, empty means no prompt", async () => {
-    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const multi = await writeConfig(
       "prompt.yaml",
       `agent:\n  prompt: |\n    Line one.\n    Line two.\n${base}`,
@@ -66,10 +93,10 @@ describe("loadConfig", () => {
   });
 
   test("agent limits default and can be overridden", async () => {
-    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const defaults = await loadConfig(await writeConfig("limits-default.yaml", base));
     expect(defaults.agent).toEqual({
-      maxConcurrent: 16,
+      maxConcurrent: 32,
       maxQueue: 1024,
       turnTimeoutMinutes: 30,
       sessionIdleDays: 7,
@@ -87,7 +114,7 @@ describe("loadConfig", () => {
   });
 
   test("rejects non-positive or fractional limits", async () => {
-    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const zero = await writeConfig("zero.yaml", `agent:\n  maxConcurrent: 0\n${base}`);
     expect(loadConfig(zero)).rejects.toThrow("agent.maxConcurrent must be greater than 0");
     const frac = await writeConfig("frac.yaml", `agent:\n  sessionIdleDays: 1.5\n${base}`);
@@ -95,7 +122,7 @@ describe("loadConfig", () => {
   });
 
   test("agent.stateDir expands ~ and resolves relative paths against the config file", async () => {
-    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     const home = await writeConfig("state-home.yaml", `agent:\n  stateDir: ~/agents/a\n${base}`);
     expect((await loadConfig(home)).agent.stateDir).toBe(join(homedir(), "agents/a"));
     const rel = await writeConfig("state-rel.yaml", `agent:\n  stateDir: ./state\n${base}`);
@@ -103,7 +130,7 @@ describe("loadConfig", () => {
   });
 
   test("env: variables as strings, empty when missing, names validated", async () => {
-    const base = "slack:\n  botToken: a\n  appToken: b\n";
+    const base = "channels:\n  slack:\n    botToken: a\n    appToken: b\n";
     expect((await loadConfig(await writeConfig("env-none.yaml", base))).env).toEqual({});
     const path = await writeConfig(
       "env.yaml",
@@ -119,14 +146,17 @@ describe("loadConfig", () => {
   });
 
   test("codex section is optional", async () => {
-    const path = await writeConfig("min.yaml", "slack:\n  botToken: a\n  appToken: b\n");
+    const path = await writeConfig(
+      "min.yaml",
+      "channels:\n  slack:\n    botToken: a\n    appToken: b\n",
+    );
     expect((await loadConfig(path)).codex).toEqual({});
   });
 
   test("accepts model and reasoningEffort overrides", async () => {
     const path = await writeConfig(
       "override.yaml",
-      "codex:\n  model: my-model\n  reasoningEffort: high\nslack:\n  botToken: a\n  appToken: b\n",
+      "codex:\n  model: my-model\n  reasoningEffort: high\nchannels:\n  slack:\n    botToken: a\n    appToken: b\n",
     );
     expect((await loadConfig(path)).codex).toEqual({ model: "my-model", reasoningEffort: "high" });
   });
@@ -134,7 +164,7 @@ describe("loadConfig", () => {
   test("resolves a relative codex.path against the config file", async () => {
     const path = await writeConfig(
       "rel.yaml",
-      "codex:\n  path: ./bin/codex\nslack:\n  botToken: a\n  appToken: b\n",
+      "codex:\n  path: ./bin/codex\nchannels:\n  slack:\n    botToken: a\n    appToken: b\n",
     );
     expect((await loadConfig(path)).codex.path).toBe(join(dir, "bin/codex"));
   });
@@ -142,7 +172,7 @@ describe("loadConfig", () => {
   test("rejects an invalid reasoningEffort", async () => {
     const path = await writeConfig(
       "bad.yaml",
-      "codex:\n  reasoningEffort: extreme\nslack:\n  botToken: a\n  appToken: b\n",
+      "codex:\n  reasoningEffort: extreme\nchannels:\n  slack:\n    botToken: a\n    appToken: b\n",
     );
     expect(loadConfig(path)).rejects.toThrow("reasoningEffort");
   });
@@ -152,7 +182,7 @@ describe("loadConfig", () => {
   });
 
   test("reports malformed YAML", async () => {
-    const path = await writeConfig("broken.yaml", "slack: [unclosed\n");
+    const path = await writeConfig("broken.yaml", "channels: [unclosed\n");
     expect(loadConfig(path)).rejects.toThrow("Failed to parse");
   });
 });
@@ -177,7 +207,7 @@ describe("config.example.yaml", () => {
 
   test("contains only required settings, as placeholders", () => {
     expect(Bun.YAML.parse(CONFIG_TEMPLATE)).toEqual({
-      slack: { botToken: `xoxb-${PLACEHOLDER}`, appToken: `xapp-${PLACEHOLDER}` },
+      channels: { slack: { botToken: `xoxb-${PLACEHOLDER}`, appToken: `xapp-${PLACEHOLDER}` } },
     });
   });
 });

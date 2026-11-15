@@ -1,0 +1,108 @@
+/**
+ * The interface every channel (Slack, Telegram) implements. Messages, replies and schedules carry
+ * a `channel` string, the chat ID within a channel: a Slack channel or DM ID, or `tg:<chat id>`.
+ * Each channel owns its own chat IDs, so one queue, session store and scheduler serve all of them.
+ */
+
+export type Platform = "slack" | "telegram";
+
+/** Prefix of Telegram channel IDs (`tg:<chat id>`); Slack IDs are used as they are. */
+export const TELEGRAM_PREFIX = "tg:";
+
+/** A message addressed to the agent, normalized from a platform event. */
+export interface IncomingMessage {
+  channel: string;
+  /** ID of the message itself (used for reactions); empty for slash commands. */
+  ts: string;
+  /**
+   * Thread to reply in: a Slack thread, or a Telegram topic. Undefined for a DM's top level,
+   * which is one conversation.
+   */
+  threadTs: string | undefined;
+  user: string;
+  /** Text with the agent's own @mention removed. */
+  text: string;
+  isDirect: boolean;
+}
+
+/**
+ * Identifies the conversation a message belongs to, which maps to one Codex session:
+ * a thread (`channel:threadTs`), or a DM's top level (`channel`).
+ */
+export function conversationKey(message: Pick<IncomingMessage, "channel" | "threadTs">): string {
+  return message.threadTs ? `${message.channel}:${message.threadTs}` : message.channel;
+}
+
+/** Where a reply goes: the conversation of a message, and the message itself for reactions. */
+export interface ReplyTarget {
+  channel: string;
+  /** The message to react to; empty when there is none. */
+  ts: string;
+  /** Thread to post in; undefined/null posts top-level. */
+  threadTs?: string | null;
+  /**
+   * The reply starts a conversation of its own (a scheduled run's result). Slack posts it
+   * top-level, where it starts a thread anyway; Telegram opens a new topic for it.
+   */
+  startsThread?: boolean;
+}
+
+/** Ways to respond to a message. */
+export interface Reply {
+  /**
+   * Post Markdown in the conversation, split into several messages if it is long. With
+   * `choices`, the last message shows them as buttons; a click arrives as a new message.
+   * Returns the ID of the thread a reply there would continue, when the post started one
+   * (a Slack message ts, a Telegram topic), else the first message's ID or undefined.
+   */
+  post(markdown: string, choices?: string[]): Promise<string | undefined>;
+  /** Mark the message with a reaction, e.g. "eyes" (Slack names). Errors are ignored. */
+  react(name: string): Promise<void>;
+  /** Remove one of our reactions from the message. Errors are ignored. */
+  unreact(name: string): Promise<void>;
+  /**
+   * Show what the agent is doing ("is running tests…"); empty clears it. It also goes away
+   * when we post. Errors are ignored.
+   */
+  setStatus(status: string): Promise<void>;
+}
+
+export type MessageHandler = (message: IncomingMessage, reply: Reply) => Promise<void>;
+
+/** A message from the thread that was not addressed to the agent. */
+export interface ContextMessage {
+  user: string;
+  text: string;
+}
+
+export interface ThreadContext {
+  messages: ContextMessage[];
+  /** How many earlier messages were left out to keep the context short. */
+  omitted: number;
+}
+
+export const NO_CONTEXT: ThreadContext = { messages: [], omitted: 0 };
+
+/** A connected channel: receives messages for the agent and delivers its replies. */
+export interface Channel {
+  platform: Platform;
+  /** Shown in logs, e.g. "slack @reviewer (U0123)". */
+  label: string;
+  /** Whether a chat ID (a message's `channel`) belongs to this channel. */
+  owns(channel: string): boolean;
+  /** Reply to a message, including one received before a restart. */
+  replyTo(target: ReplyTarget): Reply;
+  /**
+   * Messages in the message's thread after `afterTs` (null: from the thread's start) and before
+   * the message itself, minus the agent's own. Platforms that can't read history return none.
+   */
+  threadContext(
+    message: { channel: string; ts: string; threadTs: string | null },
+    afterTs: string | null,
+  ): Promise<ThreadContext>;
+  /** Make sure the agent can post in a channel (name or ID); returns its ID. */
+  ensureChannel(ref: string): Promise<string>;
+  /** Connect and start delivering messages to `onMessage`. */
+  start(onMessage: MessageHandler): Promise<void>;
+  stop(): Promise<void>;
+}

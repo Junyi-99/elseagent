@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SLACK_INSTRUCTIONS } from "./agent/instructions.ts";
+import { SLACK_INSTRUCTIONS, TELEGRAM_INSTRUCTIONS } from "./agent/instructions.ts";
 import {
   AGENT_THREAD_DEFAULTS,
   buildCodexOptions,
@@ -78,6 +78,13 @@ describe("buildCodexOptions", () => {
       developer_instructions: SLACK_INSTRUCTIONS,
       features: { plugins: false, apps: false },
     });
+  });
+
+  test("Telegram conversations get the Telegram instructions", () => {
+    const opts = buildCodexOptions({ codexPath: "/bin/codex", platform: "telegram", prompt: "Hi" });
+    expect(opts.config?.developer_instructions).toBe(
+      `${TELEGRAM_INSTRUCTIONS}\n\n# Your role\n\nHi`,
+    );
   });
 });
 

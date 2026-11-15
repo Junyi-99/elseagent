@@ -38,7 +38,10 @@ describe("cli", () => {
   });
 
   test("run reads ~/.elseagent.yaml by default", async () => {
-    await Bun.write(join(dir, ".elseagent.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
+    await Bun.write(
+      join(dir, ".elseagent.yaml"),
+      "channels:\n  slack:\n    botToken: a\n    appToken: b\n",
+    );
     const res = run(["run", "--dry-run"], dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(new RegExp(`config: +${join(dir, ".elseagent.yaml")}\\n`));
@@ -66,7 +69,7 @@ describe("cli", () => {
   test("run with -c reports validation errors", () => {
     const res = run(["run"], dir);
     expect(res.code).toBe(1);
-    expect(res.stderr).toContain("slack.botToken is still the placeholder");
+    expect(res.stderr).toContain("channels.slack.botToken is still the placeholder");
   });
 
   test("run with a missing config points to init", () => {
@@ -76,7 +79,10 @@ describe("cli", () => {
   });
 
   test("run defaults the working directory to the current directory", async () => {
-    await Bun.write(join(dir, "ok.yaml"), "slack:\n  botToken: a\n  appToken: b\n");
+    await Bun.write(
+      join(dir, "ok.yaml"),
+      "channels:\n  slack:\n    botToken: a\n    appToken: b\n",
+    );
     const res = run(["run", "-c", "ok.yaml", "--dry-run"], dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(new RegExp(`config: +${join(dir, "ok.yaml")}\\n`));

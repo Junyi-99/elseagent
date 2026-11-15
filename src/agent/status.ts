@@ -9,7 +9,7 @@ const clip = (text: string, max: number) => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
 
-/** The Slack status for what Codex just started doing, or null to keep the current one. */
+/** The status line for what Codex just started doing, or null to keep the current one. */
 export function describeItem(item: ThreadItem): string | null {
   let status: string | null;
   switch (item.type) {
@@ -40,14 +40,14 @@ export function describeItem(item: ThreadItem): string | null {
 }
 
 export interface StatusOptions {
-  /** Minimum time between two updates sent to Slack. */
+  /** Minimum time between two status updates sent to the chat. */
   minIntervalMs?: number;
   /** Re-send the current status this often: Slack drops it after 2 minutes. */
   refreshMs?: number;
 }
 
 /**
- * Keeps a thread's loading status in step with what Codex is doing, without flooding Slack:
+ * Keeps a thread's loading status in step with what Codex is doing, without flooding the chat:
  * updates are throttled (the latest one wins), and the status is refreshed before it expires.
  */
 export class StatusTicker {

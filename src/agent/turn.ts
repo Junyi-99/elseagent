@@ -1,5 +1,11 @@
 import type { Codex, Thread, ThreadItem, ThreadOptions, TurnOptions } from "@openai/codex-sdk";
-import type { ContextMessage, Reply, ReplyTarget, ThreadContext } from "../slack/index.ts";
+import {
+  type ContextMessage,
+  NO_CONTEXT,
+  type Reply,
+  type ReplyTarget,
+  type ThreadContext,
+} from "../channels/types.ts";
 import type { QueuedMessage, SessionStore } from "../state/index.ts";
 import { parseReply, REPLY_SCHEMA } from "./reply.ts";
 import { stopReason, type TurnRunner } from "./scheduler.ts";
@@ -17,7 +23,7 @@ export const REACTIONS = {
 
 /**
  * The `/new` slash command (DMs only): start the DM over with a new Codex session. It is
- * queued without a Slack message (empty ts), unlike a user typing "/new" in a thread, which is
+ * queued without a chat message (empty ts), unlike a user typing "/new" in a thread, which is
  * just text for Codex.
  */
 export function isNewSessionCommand(
@@ -65,8 +71,6 @@ export interface TurnDeps {
   logger?: Pick<Console, "warn">;
 }
 
-const NO_CONTEXT: ThreadContext = { messages: [], omitted: 0 };
-
 const line = (m: ContextMessage) => `<@${m.user}>: ${m.text}`;
 
 /**
@@ -103,7 +107,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
 
   return async (message, signal) => {
     const scheduled = message.scheduleId !== null;
-    const reply = deps.replyTo(message);
+    const reply = deps.replyTo({ ...message, startsThread: scheduled });
     // Scheduled runs and slash commands have no user message to react to.
     const react = (name: string) => (message.ts ? reply.react(name) : Promise.resolve());
     const unreact = (name: string) => (message.ts ? reply.unreact(name) : Promise.resolve());
@@ -148,7 +152,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         : await deps
             .threadContext(message, session?.lastSeenTs ?? null)
             .catch((err: Error): ThreadContext => {
-              logger.warn(`slack: could not read thread context: ${err.message}`);
+              logger.warn(`could not read thread context: ${err.message}`);
               return NO_CONTEXT;
             });
       const finalResponse = await runStreamed(
@@ -165,6 +169,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       await postAndTrack(text.trim() || "_(no response)_", choices);
       failed = false;
     } catch (err) {
+      await status.stop();
       const stopped = stopReason(signal);
       if (stopped?.kind === "cancelled") {
         await postAndTrack(`Stopped by <@${stopped.by}>.`);

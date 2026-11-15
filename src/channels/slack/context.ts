@@ -1,8 +1,4 @@
-/** A message from the thread that was not addressed to the agent. */
-export interface ContextMessage {
-  user: string;
-  text: string;
-}
+import type { ContextMessage, ThreadContext } from "../types.ts";
 
 /** The subset of the Slack WebClient used to read a thread (kept small for testing). */
 export interface RepliesClient {
@@ -24,12 +20,6 @@ export interface RepliesClient {
 
 /** At most this many context messages are sent to Codex; older ones are summarized as a count. */
 export const MAX_CONTEXT_MESSAGES = 50;
-
-export interface ThreadContext {
-  messages: ContextMessage[];
-  /** How many earlier messages were left out to stay under MAX_CONTEXT_MESSAGES. */
-  omitted: number;
-}
 
 /**
  * Messages in a thread strictly between `afterTs` (the last one Codex saw; omit for the whole

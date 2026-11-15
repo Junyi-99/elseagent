@@ -47,7 +47,7 @@ const agentSchema = z.object({
     .transform((s) => s.trim() || undefined)
     .optional(),
   // Codex turns (one `codex exec` each) running at the same time. Idle sessions don't count.
-  maxConcurrent: positiveInt("agent.maxConcurrent").default(16),
+  maxConcurrent: positiveInt("agent.maxConcurrent").default(32),
   // Messages waiting for a free slot; beyond this new messages are turned away.
   maxQueue: positiveInt("agent.maxQueue").default(1024),
   // A turn running longer than this is aborted and its slot freed.
@@ -78,19 +78,36 @@ const codexSchema = z.object({
 
 const slackSchema = z.object(
   {
-    botToken: requiredString("slack.botToken"),
-    appToken: requiredString("slack.appToken"),
-    // Public channels to join at startup, by name (with or without #) or ID.
-    channels: z.array(z.string().trim().min(1)).default([]),
+    botToken: requiredString("channels.slack.botToken"),
+    appToken: requiredString("channels.slack.appToken"),
+    // Public Slack channels to join at startup, by name (with or without #) or ID.
+    join: z.array(z.string().trim().min(1)).default([]),
   },
-  { error: "slack section is required (slack.botToken, slack.appToken)" },
+  { error: "channels.slack must be a section with botToken and appToken" },
+);
+
+const USER_ID_ERROR = "channels.telegram.allowedUsers entries must be numeric Telegram user IDs";
+const telegramUserId = z
+  .union([z.int(USER_ID_ERROR), z.string().trim().regex(/^\d+$/, USER_ID_ERROR)], {
+    error: USER_ID_ERROR,
+  })
+  .transform(String);
+
+const telegramSchema = z.object(
+  {
+    botToken: requiredString("channels.telegram.botToken"),
+    // Telegram user IDs that may talk to the agent; /start tells a user their ID.
+    allowedUsers: z.array(telegramUserId).default([]),
+  },
+  { error: "channels.telegram must be a section with botToken" },
 );
 
 /** Every config section; docs/config.md must document each of their fields. */
 export const configSections = {
   agent: agentSchema,
   codex: codexSchema,
-  slack: slackSchema,
+  "channels.slack": slackSchema,
+  "channels.telegram": telegramSchema,
 };
 
 /**
@@ -109,15 +126,37 @@ const envSchema = z.record(
   },
 );
 
+/** A section that may be left out; an empty one (`slack:` alone, parsed as null) too. */
+const optionalSection = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => v ?? undefined, schema.optional());
+
+const NO_CHANNEL = "configure at least one channel: channels.slack or channels.telegram (or both)";
+
+// Where people talk to the agent: each channel is turned on by its section. At least one.
+const channelsSchema = z.preprocess(
+  (v) => v ?? {},
+  z
+    .object(
+      {
+        slack: optionalSection(slackSchema),
+        telegram: optionalSection(telegramSchema),
+      },
+      { error: "channels must be a section with slack and/or telegram" },
+    )
+    .refine((c) => c.slack || c.telegram, { error: NO_CHANNEL }),
+);
+
 export const configSchema = z.object({
   // Optional sections may be missing or empty (`agent:` with nothing under it parses as null).
   agent: z.preprocess((v) => v ?? {}, agentSchema),
   codex: z.preprocess((v) => v ?? {}, codexSchema),
-  slack: slackSchema,
+  channels: channelsSchema,
   env: z.preprocess((v) => v ?? {}, envSchema),
 });
 
 export type Config = z.infer<typeof configSchema>;
 export type AgentConfig = Config["agent"];
-export type SlackConfig = Config["slack"];
+export type ChannelsConfig = Config["channels"];
+export type SlackConfig = NonNullable<ChannelsConfig["slack"]>;
+export type TelegramConfig = NonNullable<ChannelsConfig["telegram"]>;
 export type CodexConfig = Config["codex"];

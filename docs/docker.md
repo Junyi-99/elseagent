@@ -39,9 +39,10 @@ default command reads it), turn off Codex's own sandbox, and put credentials und
 codex:
   sandboxMode: danger-full-access
 
-slack:
-  botToken: xoxb-...
-  appToken: xapp-...
+channels:
+  slack:
+    botToken: xoxb-...
+    appToken: xapp-...
 
 env:
   CODEX_API_KEY: sk-... # Codex; optional, see below
@@ -53,7 +54,7 @@ env:
 
 **Codex sign-in.** With `CODEX_API_KEY`, Codex uses the key. Without it, elseagent checks for
 a saved login (`codex login`, stored in `/home/agent/.codex`); if there is none it starts Codex's
-device-code login before connecting to Slack and prints the link and a one-time code to the
+device-code login before connecting to Slack or Telegram and prints the link and a one-time code to the
 log (`docker logs` / `kubectl logs`). Open the link, enter the code, and the agent continues;
 an expired code (15 minutes) is replaced with a new one. The login is saved in the home volume,
 so this happens once.
@@ -82,13 +83,13 @@ docker run -d --name reviewer --restart unless-stopped --shm-size=1g \
   elseagent:full
 ```
 
-Check a config without connecting to Slack:
+Check a config without connecting to Slack or Telegram:
 `docker run --rm -v "$PWD/reviewer.yaml:/etc/elseagent/config.yaml:ro" elseagent:full run -c /etc/elseagent/config.yaml --dry-run /workspace`.
 
 ## Kubernetes
 
-Run each agent as its own **StatefulSet with one replica**. The state is a SQLite file and Slack
-Socket Mode expects one connection per app, so two pods of the same agent must never run at
+Run each agent as its own **StatefulSet with one replica**. The state is a SQLite file, Slack
+Socket Mode expects one connection per app and Telegram allows one poller per bot, so two pods of the same agent must never run at
 once. A StatefulSet guarantees that: it only starts a replacement pod after the old one is gone,
 even when a node becomes unreachable (a Deployment may start a second pod in that case). Its
 volume claim template also gives the pod the same disk across restarts, and keeps the disk when
@@ -103,9 +104,10 @@ stringData:
   config.yaml: |
     codex:
       sandboxMode: danger-full-access
-    slack:
-      botToken: xoxb-...
-      appToken: xapp-...
+    channels:
+      slack:
+        botToken: xoxb-...
+        appToken: xapp-...
     env:
       GH_TOKEN: ghp_...
 ---

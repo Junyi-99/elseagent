@@ -1,24 +1,11 @@
 import type { KnownEventFromType, types } from "@slack/bolt";
+import type { IncomingMessage } from "../types.ts";
 
 type AppMentionEvent = types.AppMentionEvent;
 
 type MessageEvent = KnownEventFromType<"message">;
 
-/** A message addressed to the agent, normalized from a Slack event. */
-export interface IncomingMessage {
-  channel: string;
-  /** Timestamp of the message itself (used for reactions). */
-  ts: string;
-  /**
-   * Thread to reply in. Channel mentions always reply in a thread (starting one if needed).
-   * Top-level DMs reply top-level, so this is undefined.
-   */
-  threadTs: string | undefined;
-  user: string;
-  /** Text with the agent's own @mention removed. */
-  text: string;
-  isDirect: boolean;
-}
+export { conversationKey } from "../types.ts";
 
 export function stripMention(text: string, botUserId: string): string {
   return text.replaceAll(`<@${botUserId}>`, "").replace(/\s+/g, " ").trim();
@@ -52,14 +39,6 @@ export function fromDirectMessage(event: MessageEvent, botUserId: string): Incom
     text: stripMention(event.text ?? "", botUserId),
     isDirect: true,
   };
-}
-
-/**
- * Identifies the conversation a message belongs to, which maps to one Codex session:
- * a thread (`channel:threadTs`), or a DM's top level (`channel`).
- */
-export function conversationKey(message: Pick<IncomingMessage, "channel" | "threadTs">): string {
-  return message.threadTs ? `${message.channel}:${message.threadTs}` : message.channel;
 }
 
 /** A slash command in a DM, as a message without a Slack message behind it (empty ts). */

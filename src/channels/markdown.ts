@@ -1,11 +1,8 @@
-/** Slack's limit for `markdown_text` is 12,000 characters; stay under it. */
-export const SLACK_MARKDOWN_LIMIT = 11_000;
-
 /**
- * Split long Markdown into Slack-sized messages, preferring paragraph, then line, boundaries.
+ * Split long Markdown into messages of at most `limit` characters, preferring paragraph, then line, boundaries.
  * A code block that has to be split is closed and reopened so each part renders.
  */
-export function splitMarkdown(text: string, limit = SLACK_MARKDOWN_LIMIT): string[] {
+export function splitMarkdown(text: string, limit: number): string[] {
   const parts: string[] = [];
   let rest = text.trim();
   while (rest.length > limit) {

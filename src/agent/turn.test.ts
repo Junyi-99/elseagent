@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ThreadItem } from "@openai/codex-sdk";
-import type { Reply, ThreadContext } from "../slack/index.ts";
+import type { Reply, ReplyTarget, ThreadContext } from "../channels/types.ts";
 import { openStateDb, type QueuedMessage, SessionStore } from "../state/index.ts";
 import { REPLY_SCHEMA } from "./reply.ts";
 import {
@@ -85,6 +85,7 @@ function setup(
   const posts: { text: string; choices: string[] }[] = [];
   const reactions: string[] = [];
   const contextCalls: (string | null)[] = [];
+  const targets: ReplyTarget[] = [];
   const reply: Reply = {
     post: async (text, choices = []) => {
       posts.push({ text, choices });
@@ -100,7 +101,10 @@ function setup(
     statusOptions: { minIntervalMs: 0, refreshMs: 60_000 },
     sessions,
     threadOptions: {},
-    replyTo: () => reply,
+    replyTo: (target) => {
+      targets.push(target);
+      return reply;
+    },
     threadContext: async (_m, afterTs) => {
       contextCalls.push(afterTs);
       return context;
@@ -109,7 +113,7 @@ function setup(
     sessionIdleMs: 7 * DAY,
     logger: { warn: () => {} },
   });
-  return { run, calls, sessions, posts, reactions, contextCalls, statuses };
+  return { run, calls, sessions, posts, reactions, contextCalls, statuses, targets };
 }
 
 const never = new AbortController().signal;
@@ -279,10 +283,12 @@ describe("scheduled runs", () => {
   });
 
   test("start a new session, post top-level, and map the posted message's thread", async () => {
-    const { run, calls, posts, reactions, sessions, contextCalls, statuses } = setup(async () =>
-      json("CI is green."),
+    const { run, calls, posts, reactions, sessions, contextCalls, statuses, targets } = setup(
+      async () => json("CI is green."),
     );
     await run(scheduled(), never);
+    // The post starts a conversation of its own (in Telegram, a new topic).
+    expect(targets[0]).toMatchObject({ channel: "C_OPS", startsThread: true });
     expect(calls).toEqual([
       {
         kind: "start",

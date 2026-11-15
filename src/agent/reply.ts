@@ -1,6 +1,6 @@
 /** What Codex returns at the end of a turn (enforced with the SDK's `outputSchema`). */
 export interface AgentReply {
-  /** Markdown posted to Slack. */
+  /** Markdown posted to the chat. */
   message: string;
   /** Options shown as buttons; empty when there is no decision to make. */
   choices: string[];
@@ -10,7 +10,7 @@ export interface AgentReply {
 export const REPLY_SCHEMA = {
   type: "object",
   properties: {
-    message: { type: "string", description: "Your reply, as Markdown for Slack." },
+    message: { type: "string", description: "Your reply, as Markdown." },
     choices: {
       type: "array",
       items: { type: "string" },

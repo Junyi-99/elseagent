@@ -60,7 +60,7 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
     {
       description:
         "Conversations with a Codex session, most recently active first. A conversation is " +
-        "`channel:threadTs`, or `channel` for a DM's top level.",
+        "`channel:threadTs`, or `channel` for a DM's top level (Telegram: `tg:<chat>:<topic>`).",
       inputSchema: { limit: z.number().int().positive().max(200).optional() },
       annotations: readOnly,
     },
@@ -100,7 +100,8 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
     {
       description:
         "Create a recurring task. On each run a new Codex session does `prompt` and posts the " +
-        "result as a new message in `channel`; people can follow up in its thread. Runs at most " +
+        "result as a new message in `channel` (in Telegram, a new topic); people can follow up " +
+        "in its thread. Runs at most " +
         "every 5 minutes. Confirm the schedule (next run time) to the user afterwards.",
       inputSchema: {
         name: z.string().min(1).max(80).describe("Short name, e.g. 'Daily CI check'"),
@@ -110,7 +111,8 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
           .string()
           .optional()
           .describe(
-            "Channel name or ID to post in; defaults to the current conversation's channel",
+            "Slack channel name or ID, or a Telegram chat as tg:<chat id>; defaults to the " +
+              "current conversation's channel",
           ),
         timezone: z
           .string()

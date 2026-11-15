@@ -3,18 +3,21 @@ import { Admin } from "./agent/admin.ts";
 import { Scheduler } from "./agent/scheduler.ts";
 import { ScheduleRunner } from "./agent/schedules.ts";
 import { createTurnRunner, REACTIONS } from "./agent/turn.ts";
+import { Channels } from "./channels/registry.ts";
+import { createSlackBot } from "./channels/slack/index.ts";
+import { createTelegramBot } from "./channels/telegram/index.ts";
+import { type Channel, conversationKey, type MessageHandler } from "./channels/types.ts";
 import { buildThreadOptions, createCodex, resolveCodexPath } from "./codex.ts";
 import { codexAuthStatus, ensureCodexLogin } from "./codex-login.ts";
 import type { Config } from "./config/index.ts";
 import { type McpEndpoint, startMcpServer } from "./mcp/server.ts";
-import { conversationKey, createSlackBot, type MessageHandler } from "./slack/index.ts";
 import { MessageQueue, openStateDb, ScheduleStore, SessionStore } from "./state/index.ts";
 
 export interface StartOptions {
   configPath: string;
   /** Absolute path of the directory Codex works in. */
   workingDirectory: string;
-  /** Validate everything and print the summary, but do not connect to Slack. */
+  /** Validate everything and print the summary, but do not connect to Slack or Telegram. */
   dryRun?: boolean;
 }
 
@@ -49,6 +52,12 @@ export async function startApp(
     ["reasoning effort", threadOptions.modelReasoningEffort ?? "(codex default)"],
     ["prompt", prompt ? `${prompt.length} chars` : "(none)"],
     ["time zone", timezone],
+    [
+      "channels",
+      [config.channels.slack && "slack", config.channels.telegram && "telegram"]
+        .filter(Boolean)
+        .join(", "),
+    ],
     ["env", Object.keys(config.env).join(", ") || "(none)"],
     [
       "limits",
@@ -61,17 +70,24 @@ export async function startApp(
     console.log(
       `codex auth: ${auth}${auth === "not-logged-in" ? " (run would start device-code login)" : ""}`,
     );
-    console.log("dry run: config OK, not connecting to Slack");
+    console.log("dry run: config OK, not connecting to Slack or Telegram");
     return;
   }
 
   // Without CODEX_API_KEY or a saved login, log a device code and wait for someone to sign in.
   await ensureCodexLogin({ codexPath });
 
-  const bot = await createSlackBot(config.slack);
-  const { teamId, userId } = bot.identity;
-  // One database per Slack bot, so several agents can share a state directory.
-  const dbPath = join(stateDir, `${teamId}-${userId}.sqlite`);
+  // Connect-time checks (tokens) for every configured channel, before anything starts.
+  const slack = config.channels.slack ? await createSlackBot(config.channels.slack) : undefined;
+  const telegram = config.channels.telegram
+    ? await createTelegramBot(config.channels.telegram)
+    : undefined;
+  const channels = new Channels([slack, telegram].filter((c) => c !== undefined));
+  // One database per agent, named after its bot, so several agents can share a state directory.
+  const dbName = slack
+    ? `${slack.identity.teamId}-${slack.identity.userId}`
+    : `telegram-${telegram?.identity.id}`;
+  const dbPath = join(stateDir, `${dbName}.sqlite`);
   const db = openStateDb(dbPath);
   const sessions = new SessionStore(db);
   const queue = new MessageQueue(db);
@@ -87,21 +103,14 @@ export async function startApp(
         createCodex({
           codexPath,
           prompt,
+          platform: channels.platformOf(message.channel),
           mcp: mcp && { url: mcp.url, token: mcp.token, turnId: message.id },
           shellEnv: config.env,
         }),
       sessions,
       threadOptions,
-      replyTo: bot.replyTo,
-      threadContext: (message, afterTs) =>
-        message.threadTs
-          ? bot.threadContext({
-              channel: message.channel,
-              threadTs: message.threadTs,
-              afterTs,
-              beforeTs: message.ts,
-            })
-          : Promise.resolve({ messages: [], omitted: 0 }), // top-level DM: nothing to add
+      replyTo: channels.replyTo,
+      threadContext: channels.threadContext,
       turnTimeoutMs: turnTimeoutMinutes * MINUTE,
       sessionIdleMs,
     }),
@@ -119,7 +128,7 @@ export async function startApp(
     sessions,
     schedules,
     scheduleRunner,
-    ensureChannel: bot.ensureChannel,
+    ensureChannel: channels.ensureChannel,
     limits: { maxConcurrent, maxQueue, turnTimeoutMinutes, sessionIdleDays },
     defaultTimezone: timezone,
   });
@@ -133,23 +142,27 @@ export async function startApp(
 
   // Messages that were mid-turn when the previous process stopped.
   for (const message of queue.takeInterrupted()) {
-    const reply = bot.replyTo(message);
-    if (message.scheduleId !== null) {
+    try {
+      const reply = channels.replyTo(message);
+      if (message.scheduleId !== null) {
+        await reply
+          .post(`A scheduled task (#${message.scheduleId}) was interrupted by a restart.`)
+          .catch(() => {});
+        continue;
+      }
+      await reply.unreact(REACTIONS.working);
+      await reply.react(REACTIONS.failed);
       await reply
-        .post(`A scheduled task (#${message.scheduleId}) was interrupted by a restart.`)
+        .post("The agent restarted while working on this. Send it again to retry.")
         .catch(() => {});
-      continue;
+    } catch (err) {
+      console.warn(`could not report an interrupted turn: ${(err as Error).message}`);
     }
-    await reply.unreact(REACTIONS.working);
-    await reply.react(REACTIONS.failed);
-    await reply
-      .post("The agent restarted while working on this. Send it again to retry.")
-      .catch(() => {});
   }
 
   const onMessage: MessageHandler = async (message, reply) => {
     if (!message.text) {
-      await reply.post("Hi! Mention me with what you need, and I'll get to work.");
+      await reply.post("Hi! Tell me what you need, and I'll get to work.");
       return;
     }
     const result = scheduler.submit({
@@ -167,8 +180,13 @@ export async function startApp(
     }
   };
 
-  await bot.start(onMessage);
-  console.log(`slack: connected as @${bot.identity.name} (${userId}), state ${dbPath}`);
+  const started: Channel[] = [];
+  for (const channel of channels.all) {
+    await channel.start(onMessage);
+    started.push(channel);
+    console.log(`${channel.label}: connected`);
+  }
+  console.log(`state: ${dbPath}`);
   scheduler.pump(); // pick up messages still queued from before a restart
 
   const expireSessions = () => {
@@ -190,7 +208,7 @@ export async function startApp(
     console.log(`${signal} received, stopping`);
     clearInterval(gc);
     clearInterval(ticker);
-    await bot.stop(); // no new messages
+    await Promise.all(started.map((c) => c.stop())); // no new messages
     await scheduler.stop(); // abort running turns; they tell their threads
     await mcp?.stop();
     db.$client.close();
