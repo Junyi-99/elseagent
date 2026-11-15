@@ -13,7 +13,7 @@ The [`images` workflow](../.github/workflows/images.yml) builds both for `linux/
 `linux/arm64` on every push to `main` and publishes them as `latest`; older versions are deleted,
 so `latest` is the only one. The images are public: no login needed. To build
 locally instead: `docker build --target full -t elseagent:full .` (or `--target base`). Sizes are
-about 4.8 GB (`base`) and 7.5 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
+about 4.8 GB (`base`) and 9 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
 `base` stage (Node is the current LTS); the browser is Playwright's headless Chromium.
 
 ## What each section is for
@@ -43,14 +43,15 @@ Two things go into the container:
   toolset in the image, not to elseagent, which passes its environment on to Codex and every
   command it runs. See [`.env.example`](../.env.example):
 
-  | Variable                                        | Tool                                       |
-  | ----------------------------------------------- | ------------------------------------------ |
-  | `GH_TOKEN`                                      | `gh`, and `git` over HTTPS for github.com  |
-  | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `wrangler`                                 |
-  | `KUBECONFIG`                                    | `kubectl`, `helm` (mount the file as well) |
-  | `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`… | `psql`                                     |
-  | `MYSQL_HOST`, `MYSQL_PWD`                       | `mariadb`                                  |
-  | `SOPS_AGE_KEY`                                  | `sops` (decrypting with an age key)        |
+  | Variable                                                    | Tool                                       |
+  | ----------------------------------------------------------- | ------------------------------------------ |
+  | `GH_TOKEN`                                                  | `gh`, and `git` over HTTPS for github.com  |
+  | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`             | `wrangler`                                 |
+  | `KUBECONFIG`                                                | `kubectl`, `helm` (mount the file as well) |
+  | `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`…             | `psql`                                     |
+  | `MYSQL_HOST`, `MYSQL_PWD`                                   | `mariadb`                                  |
+  | `SOPS_AGE_KEY`                                              | `sops` (decrypting with an age key)        |
+  | `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` | `clickhouse-client` (`full`)               |
 
   With Docker Compose they go in `.env`; on Kubernetes in the `elseagent-env` Secret.
 
