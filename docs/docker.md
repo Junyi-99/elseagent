@@ -11,8 +11,7 @@ write anywhere in the container, but nothing outside it.
 
 The [`images` workflow](../.github/workflows/images.yml) builds both for `linux/amd64` and
 `linux/arm64` on every push to `main` and publishes them as `latest`; older versions are deleted,
-so `latest` is the only one. While the packages are private, `docker login ghcr.io` with a token
-that can read packages before pulling (in Kubernetes, an `imagePullSecret`). To build
+so `latest` is the only one. The images are public: no login needed. To build
 locally instead: `docker build --target full -t elseagent:full .` (or `--target base`). Sizes are
 about 4.2 GB (`base`) and 6.5 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
 `base` stage (Node is the current LTS); the browser is Playwright's headless Chromium.
