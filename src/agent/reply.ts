@@ -6,6 +6,8 @@ export interface AgentReply {
   message: string;
   /** Options shown as buttons; empty when there is no decision to make. */
   choices: string[];
+  /** Paths of files to send with the message. */
+  files: string[];
 }
 
 /** JSON schema for AgentReply, in the strict form structured outputs require. */
@@ -24,8 +26,15 @@ export const REPLY_SCHEMA = {
       items: { type: "string" },
       description: "2 to 5 short options for the user to pick from, or empty.",
     },
+    files: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Paths of files to send with your message (relative to the working directory, or " +
+        "absolute), e.g. a chart, report or export you made; empty otherwise.",
+    },
   },
-  required: ["reply", "message", "choices"],
+  required: ["reply", "message", "choices", "files"],
   additionalProperties: false,
 } as const;
 
@@ -44,8 +53,11 @@ export function parseReply(finalResponse: string): AgentReply {
       .filter((c, i, all) => c && all.indexOf(c) === i)
       .slice(0, MAX_CHOICES)
       .map((c) => (c.length > MAX_CHOICE_LENGTH ? `${c.slice(0, MAX_CHOICE_LENGTH - 1)}…` : c));
-    return { reply: raw.reply !== false, message: raw.message, choices };
+    const files = (Array.isArray(raw.files) ? raw.files : []).filter(
+      (f): f is string => typeof f === "string" && f.trim() !== "",
+    );
+    return { reply: raw.reply !== false, message: raw.message, choices, files };
   } catch {
-    return { reply: true, message: finalResponse, choices: [] };
+    return { reply: true, message: finalResponse, choices: [], files: [] };
   }
 }

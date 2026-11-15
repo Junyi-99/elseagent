@@ -32,6 +32,7 @@ All options: [config.md](config.md#channelstelegram).
 - While Codex works, a draft message shows what it is doing ("Running `bun test`…").
 - Choices appear as buttons under the reply; your pick is sent as your next message.
 - Scheduled tasks open a new topic in your chat for each run; reply there to follow up.
-- The agent reads text messages and captions; other attachments are not supported yet.
+- Send photos, documents, videos, audio or voice notes, with a caption or without; an album
+  arrives as one message. Stickers, locations and the like are not read.
 
 See [usage.md](usage.md) for what works the same on every channel.

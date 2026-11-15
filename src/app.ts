@@ -113,6 +113,7 @@ export async function startApp(
       threadOptions,
       replyTo: channels.replyTo,
       threadContext: channels.threadContext,
+      download: channels.download,
       turnTimeoutMs: turnTimeoutMinutes * MINUTE,
       sessionIdleMs,
     }),

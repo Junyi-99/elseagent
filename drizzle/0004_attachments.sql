@@ -1,0 +1,1 @@
+ALTER TABLE `queue` ADD `files` text DEFAULT '[]' NOT NULL;

@@ -29,6 +29,10 @@ channels:
 
 All options: [config.md](config.md#channelsslack).
 
+An app created from an older manifest lacks the file scopes: add `files:read` (read files
+people attach) and `files:write` (send files) under **OAuth & Permissions > Bot Token Scopes**,
+then reinstall the app. Without them the agent still works, but can't open or send files.
+
 ## In Slack
 
 - The agent replies to `@mentions` in channels, in a thread, and to DMs.
@@ -37,6 +41,8 @@ All options: [config.md](config.md#channelsslack).
   session).
 - Reactions on your message: ⏳ queued, 👀 working (removed when the reply is posted), ❌ failed.
 - While Codex works, the bottom of the thread shows what it is doing ("is running `bun test`…").
+- Attach files or images to your message (or post them in the thread before mentioning the
+  agent): it reads them. It can attach files to its replies too.
 - In a DM, the `/new` slash command starts the DM over with a new session. In channels, start a
   new thread instead.
 - Scheduled tasks post their result as a new message in a channel; reply in its thread to follow

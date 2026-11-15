@@ -1,4 +1,4 @@
-import type { Channel, Reply, ReplyTarget, ThreadContext } from "./types.ts";
+import type { Attachment, Channel, Reply, ReplyTarget, ThreadContext } from "./types.ts";
 
 /**
  * The connected channels (Slack, Telegram), used as one: each call goes to the channel that owns
@@ -25,6 +25,10 @@ export class Channels {
     message: { channel: string; ts: string; threadTs: string | null },
     afterTs: string | null,
   ): Promise<ThreadContext> => this.for(message.channel).threadContext(message, afterTs);
+
+  /** Download a file attached to a message in `chat`. */
+  download = (chat: string, file: Attachment, dest: string, signal?: AbortSignal): Promise<void> =>
+    this.for(chat).download(file, dest, signal);
 
   ensureChannel = (ref: string): Promise<string> => this.for(ref).ensureChannel(ref);
 }

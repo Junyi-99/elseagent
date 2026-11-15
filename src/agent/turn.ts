@@ -1,12 +1,30 @@
-import type { Codex, Thread, ThreadItem, ThreadOptions, TurnOptions } from "@openai/codex-sdk";
+import type {
+  Codex,
+  Input,
+  Thread,
+  ThreadItem,
+  ThreadOptions,
+  TurnOptions,
+} from "@openai/codex-sdk";
 import {
+  type Attachment,
   type ContextMessage,
   NO_CONTEXT,
+  type OutgoingFile,
   type Reply,
   type ReplyTarget,
   type ThreadContext,
 } from "../channels/types.ts";
 import type { MessageQueue, QueuedMessage, SessionStore } from "../state/index.ts";
+import {
+  attachmentsDir,
+  describeFiles,
+  isImage,
+  MAX_IMAGES,
+  resolveReplyFiles,
+  type SavedFile,
+  saveAttachments,
+} from "./files.ts";
 import { parseReply, REPLY_SCHEMA } from "./reply.ts";
 import { stopReason, type TurnRunner } from "./scheduler.ts";
 import { describeItem, StatusTicker, THINKING } from "./status.ts";
@@ -41,7 +59,7 @@ export const NEW_SESSION_REPLY =
  */
 export async function runStreamed(
   thread: Pick<Thread, "runStreamed">,
-  input: string,
+  input: Input,
   options: TurnOptions,
   onItemStarted: (item: ThreadItem) => void,
 ): Promise<string> {
@@ -68,12 +86,18 @@ export interface TurnDeps {
   replyTo(target: ReplyTarget): Reply;
   /** Thread messages after `afterTs` (null: from the start) and before the message itself. */
   threadContext(message: QueuedMessage, afterTs: string | null): Promise<ThreadContext>;
+  /** Download a file attached to a message in `chat` (see `Channel.download`). */
+  download(chat: string, file: Attachment, dest: string, signal?: AbortSignal): Promise<void>;
   turnTimeoutMs: number;
   sessionIdleMs: number;
   logger?: Pick<Console, "warn">;
 }
 
-const line = (m: ContextMessage) => `<@${m.user}>: ${m.text}`;
+/** A message as Codex sees it, with its attachments once downloaded. */
+type Said = Pick<ContextMessage, "user" | "text"> & { saved?: SavedFile[] };
+
+const line = (m: Said, workspace: string) =>
+  [`<@${m.user}>: ${m.text}`, ...describeFiles(m.saved ?? [], workspace)].join("\n");
 
 /** How a follow-up is introduced: a reply to the agent, which may be a mere acknowledgement. */
 export const FOLLOWUP_LABEL =
@@ -90,11 +114,13 @@ export const PASSIVE_LABEL =
  * a passive message, the latest one). A scheduled run's text is the task description itself.
  */
 export function formatInput(
-  message: Pick<QueuedMessage, "user" | "text" | "scheduleId" | "mode">,
-  context: ThreadContext,
+  message: Pick<QueuedMessage, "user" | "text" | "scheduleId" | "mode"> & Said,
+  context: { messages: Said[]; omitted: number },
+  /** Attachment paths are shown relative to it (Codex's working directory). */
+  workspace = "",
 ): string {
   if (message.scheduleId !== null) return message.text;
-  const current = line(message);
+  const current = line(message, workspace);
   const label =
     message.mode === "passive"
       ? PASSIVE_LABEL
@@ -107,7 +133,7 @@ export function formatInput(
   const omitted = context.omitted ? `(${context.omitted} earlier messages omitted)\n` : "";
   return [
     "Messages in this thread since your last reply:",
-    omitted + context.messages.map(line).join("\n"),
+    omitted + context.messages.map((m) => line(m, workspace)).join("\n"),
     "",
     label,
     current,
@@ -128,6 +154,36 @@ export function formatInput(
  */
 export function createTurnRunner(deps: TurnDeps): TurnRunner {
   const { sessions, threadOptions, turnTimeoutMs, sessionIdleMs, logger = console } = deps;
+  const workspace = threadOptions.workingDirectory ?? process.cwd();
+
+  /**
+   * Download the files of the message and of the thread context into the conversation's
+   * attachments folder, and build Codex's input: the text, plus the newest images as images.
+   */
+  const withAttachments = async (
+    message: QueuedMessage,
+    context: ThreadContext,
+    signal: AbortSignal,
+  ): Promise<Input> => {
+    const dir = attachmentsDir(workspace, message.conversationKey);
+    const download = (file: Attachment, dest: string) =>
+      deps.download(message.channel, file, dest, signal);
+    const save = (files: Attachment[] = []) => saveAttachments(files, dir, download);
+    const messages: Said[] = [];
+    for (const m of context.messages) messages.push({ ...m, saved: await save(m.files) });
+    const current: Said = { ...message, saved: await save(message.files) };
+    const text = formatInput({ ...message, ...current }, { ...context, messages }, workspace);
+    const all = [...messages, current].flatMap((m) => m.saved ?? []);
+    for (const f of all.filter((f) => f.error)) {
+      logger.warn(`could not download ${f.name} for ${message.conversationKey}: ${f.error}`);
+    }
+    const images = all.filter(isImage).slice(-MAX_IMAGES);
+    if (images.length === 0) return text;
+    return [
+      { type: "text", text },
+      ...images.map((f) => ({ type: "local_image" as const, path: f.path as string })),
+    ];
+  };
 
   return async (message, signal) => {
     const scheduled = message.scheduleId !== null;
@@ -162,14 +218,19 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       ? codex.resumeThread(session.threadId, threadOptions)
       : codex.startThread(threadOptions);
     const timeout = AbortSignal.timeout(turnTimeoutMs);
+    const turnSignal = AbortSignal.any([timeout, signal]);
 
     // Where the conversation continues: the user's thread, or the scheduled run's new message.
     let conversation: { key: string; lastSeenTs: string } | null = scheduled
       ? null
       : { key: message.conversationKey, lastSeenTs: message.ts };
     let replied = false;
-    const postAndTrack = async (text: string, choices: string[] = []) => {
-      const ts = await reply.post(text, choices);
+    const postAndTrack = async (
+      text: string,
+      choices: string[] = [],
+      files: OutgoingFile[] = [],
+    ) => {
+      const ts = await reply.post(text, choices, files);
       replied = true;
       if (scheduled && ts && !conversation) {
         conversation = { key: `${message.channel}:${ts}`, lastSeenTs: ts };
@@ -193,20 +254,26 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
               logger.warn(`could not read thread context: ${err.message}`);
               return NO_CONTEXT;
             });
+      const input = await withAttachments(message, context, turnSignal);
       const finalResponse = await runStreamed(
         thread,
-        formatInput(message, context),
-        { outputSchema: REPLY_SCHEMA, signal: AbortSignal.any([timeout, signal]) },
+        input,
+        { outputSchema: REPLY_SCHEMA, signal: turnSignal },
         (item) => {
           const text = showStatus && describeItem(item);
           if (text) status.set(text);
         },
       );
       await status.stop();
-      const { reply: answer, message: text, choices } = parseReply(finalResponse);
+      const { reply: answer, message: text, choices, files: paths } = parseReply(finalResponse);
       // Only a message the agent wasn't asked directly may go unanswered.
       if (answer || message.mode === "direct") {
-        await postAndTrack(text.trim() || "_(no response)_", choices);
+        const { files, problems } = await resolveReplyFiles(paths, workspace);
+        const notes = problems.length ? `\n\n_Could not attach ${problems.join("; ")}._` : "";
+        const body = text.trim() + notes;
+        // Files alone are a reply too (except for a scheduled run: its text starts the thread).
+        const empty = files.length > 0 && !scheduled ? "" : "_(no response)_";
+        await postAndTrack(body.trim() || empty, choices, files);
       }
       failed = false;
     } catch (err) {

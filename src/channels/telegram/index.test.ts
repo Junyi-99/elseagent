@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ConfigError } from "../../config/index.ts";
 import type { IncomingMessage } from "../types.ts";
 import { TelegramError, type TgUpdate } from "./api.ts";
@@ -53,6 +56,21 @@ function fakeApi({
           return true as T;
       }
     },
+    async upload<T>(
+      method: string,
+      params: object,
+      field: string,
+      file: { path: string; name: string },
+    ): Promise<T> {
+      calls.push({ method, params: { ...params, [field]: file.name } });
+      const err = fail[method];
+      if (err) throw err;
+      return { message_id: nextId++ } as T;
+    },
+    async downloadFile(fileId: string, dest: string): Promise<void> {
+      calls.push({ method: "downloadFile", params: { fileId, dest } });
+      await Bun.write(dest, fileId);
+    },
   };
   const sent = (method: string) => calls.filter((c) => c.method === method).map((c) => c.params);
   return { api, calls, updates, drained, sent };
@@ -71,12 +89,16 @@ const userMessage = (text: string, fields: Record<string, unknown> = {}): TgUpda
   },
 });
 
-async function run(updates: TgUpdate[], options: Parameters<typeof fakeApi>[0] = {}) {
+async function run(
+  updates: TgUpdate[],
+  options: Parameters<typeof fakeApi>[0] = {},
+  { albumWaitMs = 1_500 } = {},
+) {
   const fake = fakeApi(options);
   fake.updates.push(updates);
   const bot = await createTelegramBot(
     { botToken: "t", allowedUsers: ["42"] },
-    { api: fake.api, logger: silent },
+    { api: fake.api, logger: silent, albumWaitMs },
   );
   const received: IncomingMessage[] = [];
   const drained = fake.drained();
@@ -84,6 +106,7 @@ async function run(updates: TgUpdate[], options: Parameters<typeof fakeApi>[0] =
     received.push(m);
   });
   await drained;
+  if (albumWaitMs < 1_500) await Bun.sleep(albumWaitMs + 20);
   await bot.stop();
   return { ...fake, bot, received };
 }
@@ -170,6 +193,68 @@ describe("createTelegramBot", () => {
   });
 });
 
+describe("files", () => {
+  test("a photo or document with a caption arrives with its files", async () => {
+    const photo = userMessage("", {
+      text: undefined,
+      caption: "what's this?",
+      photo: [
+        { file_id: "small", file_size: 10 },
+        { file_id: "big", file_size: 99 },
+      ],
+    });
+    const doc = userMessage("", {
+      text: undefined,
+      message_id: 6,
+      document: { file_id: "d1", file_name: "data.csv", mime_type: "text/csv", file_size: 5 },
+    });
+    const { received } = await run([photo, doc]);
+    expect(received.map((m) => [m.text, m.files])).toEqual([
+      ["what's this?", [{ name: "photo-5.jpg", mimetype: "image/jpeg", size: 99, ref: "big" }]],
+      ["", [{ name: "data.csv", mimetype: "text/csv", size: 5, ref: "d1" }]],
+    ]);
+  });
+
+  test("an album arrives as one message", async () => {
+    const part = (id: number, caption?: string) =>
+      userMessage("", {
+        text: undefined,
+        caption,
+        message_id: id,
+        media_group_id: "g1",
+        photo: [{ file_id: `p${id}` }],
+      });
+    const { received } = await run(
+      [part(5, "compare these"), part(6), part(7)],
+      {},
+      {
+        albumWaitMs: 10,
+      },
+    );
+    expect(received).toHaveLength(1);
+    expect(received[0]?.ts).toBe("5");
+    expect(received[0]?.text).toBe("compare these");
+    expect(received[0]?.files?.map((f) => f.ref)).toEqual(["p5", "p6", "p7"]);
+  });
+
+  test("stickers and the like get an explanation", async () => {
+    const { received, sent } = await run([userMessage("", { text: undefined })]);
+    expect(received).toEqual([]);
+    expect(sent("sendMessage")[0]?.text).toContain("not this kind of message");
+  });
+
+  test("download goes through getFile", async () => {
+    const fake = fakeApi();
+    const bot = await createTelegramBot(
+      { botToken: "t", allowedUsers: ["42"] },
+      { api: fake.api, logger: silent },
+    );
+    const dest = join(mkdtempSync(join(tmpdir(), "elseagent-tg-")), "a");
+    await bot.download({ name: "a", ref: "f1" }, dest);
+    expect(fake.sent("downloadFile")).toEqual([{ fileId: "f1", dest }]);
+  });
+});
+
 describe("replies", () => {
   const setup = async (options: Parameters<typeof fakeApi>[0] = {}) => {
     const fake = fakeApi(options);
@@ -179,6 +264,32 @@ describe("replies", () => {
     );
     return { ...fake, bot };
   };
+
+  test("sends files after the text: images as photos, the rest as documents", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elseagent-tg-"));
+    const file = async (name: string) => {
+      await Bun.write(join(dir, name), "x");
+      return { path: join(dir, name), name };
+    };
+    const { bot, calls } = await setup({
+      fail: { sendDocument: new TelegramError("sendDocument", 400, "Bad Request: too big") },
+    });
+    const reply = bot.replyTo({ channel: "tg:42", ts: "5", threadTs: "3" });
+    await reply.post("Results", [], [await file("chart.png"), await file("data.csv")]);
+    const sends = calls.filter((c) => c.method.startsWith("send"));
+    expect(
+      sends.map((c) => [c.method, c.params.photo ?? c.params.document ?? c.params.text]),
+    ).toEqual([
+      ["sendMessage", "Results"],
+      ["sendPhoto", "chart.png"],
+      ["sendDocument", "data.csv"],
+      [
+        "sendMessage",
+        "<i>Could not send <code>data.csv</code>: sendDocument: Bad Request: too big</i>",
+      ],
+    ]);
+    expect(sends.every((c) => c.params.message_thread_id === 3)).toBe(true);
+  });
 
   test("posts HTML in the topic, with choices as buttons on the last part", async () => {
     const { bot, sent } = await setup();

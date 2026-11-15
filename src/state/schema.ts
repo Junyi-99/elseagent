@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { Attachment } from "../channels/types.ts";
 
 // Only routing state lives here. Conversation history is kept by Codex itself.
 
@@ -54,6 +56,8 @@ export const queue = sqliteTable(
     mode: text("mode", { enum: ["direct", "followup", "passive"] })
       .notNull()
       .default("direct"),
+    /** Files attached to the message, downloaded when its turn starts. */
+    files: text("files", { mode: "json" }).$type<Attachment[]>().notNull().default(sql`'[]'`),
   },
   (t) => [
     index("queue_status").on(t.status, t.id),

@@ -7,15 +7,22 @@ describe("parseReply", () => {
       reply: true,
       message: "Pick one",
       choices: ["a", "b"],
+      files: [],
     });
   });
 
   test("falls back to plain text when the reply is not the expected JSON", () => {
-    expect(parseReply("just text")).toEqual({ reply: true, message: "just text", choices: [] });
+    expect(parseReply("just text")).toEqual({
+      reply: true,
+      message: "just text",
+      choices: [],
+      files: [],
+    });
     expect(parseReply('{"text":"x"}')).toEqual({
       reply: true,
       message: '{"text":"x"}',
       choices: [],
+      files: [],
     });
   });
 

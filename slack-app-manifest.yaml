@@ -32,6 +32,8 @@ oauth_config:
       - im:write # open DMs
       - chat:write # post messages and thread replies
       - reactions:write # add emoji reactions (e.g. a "working on it" marker)
+      - files:read # read files people attach to messages
+      - files:write # send files (charts, reports) with replies
       - channels:join # join public channels on its own
       - channels:read # look up public channels by name
       - groups:read # check membership of private channels used by scheduled tasks

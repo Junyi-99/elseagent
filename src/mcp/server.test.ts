@@ -19,6 +19,7 @@ const turns: RunningTurn[] = [1, 2].map((id) => ({
     text: `message ${id}`,
     scheduleId: null,
     mode: "direct" as const,
+    files: [],
   },
   startedAt: Date.now() - 65_000,
 }));

@@ -3,7 +3,15 @@ import { fetchThreadContext, MAX_CONTEXT_MESSAGES, type RepliesClient } from "./
 
 const BOT = "UBOT";
 
-function client(messages: { user?: string; text?: string; ts: string; bot_id?: string }[]) {
+function client(
+  messages: {
+    user?: string;
+    text?: string;
+    ts: string;
+    bot_id?: string;
+    files?: { name: string; url_private_download: string }[];
+  }[],
+) {
   const calls: unknown[] = [];
   const c: RepliesClient = {
     conversations: {
@@ -63,4 +71,17 @@ describe("fetchThreadContext", () => {
     expect(ctx.omitted).toBe(5);
     expect(ctx.messages[0]?.text).toBe("m5");
   });
+});
+
+test("messages carry their files; a file without text is kept", async () => {
+  const url = "https://files.slack.com/f";
+  const { c } = client([
+    { user: "U1", text: "parent", ts: "1.0" },
+    { user: "U2", text: "", ts: "2.0", files: [{ name: "a.png", url_private_download: url }] },
+  ]);
+  const ctx = await fetchThreadContext(c, { channel: "C1", threadTs: "1.0", beforeTs: "3.0" }, BOT);
+  expect(ctx.messages).toEqual([
+    { user: "U1", text: "parent" },
+    { user: "U2", text: "", files: [{ name: "a.png", ref: url }] },
+  ]);
 });

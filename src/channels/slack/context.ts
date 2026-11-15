@@ -1,4 +1,5 @@
 import type { ContextMessage, ThreadContext } from "../types.ts";
+import { type SlackFile, slackFiles } from "./message.ts";
 
 /** The subset of the Slack WebClient used to read a thread (kept small for testing). */
 export interface RepliesClient {
@@ -12,7 +13,14 @@ export interface RepliesClient {
       limit?: number;
       cursor?: string;
     }): Promise<{
-      messages?: { user?: string; bot_id?: string; text?: string; ts?: string; subtype?: string }[];
+      messages?: {
+        user?: string;
+        bot_id?: string;
+        text?: string;
+        ts?: string;
+        subtype?: string;
+        files?: SlackFile[];
+      }[];
       response_metadata?: { next_cursor?: string };
     }>;
   };
@@ -45,8 +53,13 @@ export async function fetchThreadContext(
     for (const m of res.messages ?? []) {
       // replies() always returns the thread's parent first; respect the window ourselves.
       if (!m.ts || (args.afterTs && m.ts <= args.afterTs) || m.ts >= args.beforeTs) continue;
-      if (m.user === botUserId || !m.text) continue;
-      all.push({ user: m.user ?? `bot ${m.bot_id ?? "unknown"}`, text: m.text });
+      const files = slackFiles(m.files);
+      if (m.user === botUserId || (!m.text && files.length === 0)) continue;
+      all.push({
+        user: m.user ?? `bot ${m.bot_id ?? "unknown"}`,
+        text: m.text ?? "",
+        ...(files.length > 0 ? { files } : {}),
+      });
     }
     cursor = res.response_metadata?.next_cursor || undefined;
   } while (cursor);

@@ -43,7 +43,7 @@ export function createMessageHandler({
       if (route.kind === "ignore") return; // context for the next turn
       mode = route.kind;
     } else {
-      if (!message.text) {
+      if (!message.text && !message.files?.length) {
         await reply.post("Hi! Tell me what you need, and I'll get to work.");
         return;
       }
@@ -58,6 +58,7 @@ export function createMessageHandler({
       user: message.user,
       text: message.text,
       mode,
+      files: message.files ?? [],
     });
     // A passive message stays quiet: nobody asked the agent anything.
     if (mode === "passive") return;

@@ -4,6 +4,7 @@ import {
   fromDirectMessage,
   fromMention,
   fromThreadMessage,
+  slackFiles,
   slashCommandMessage,
   stripMention,
 } from "./message.ts";
@@ -145,5 +146,42 @@ describe("fromThreadMessage", () => {
     expect(fromThreadMessage(reply({ bot_id: "B1" }), BOT)).toBeNull();
     expect(fromThreadMessage(reply({ user: BOT }), BOT)).toBeNull();
     expect(fromThreadMessage(reply({ subtype: "message_changed" }), BOT)).toBeNull();
+  });
+});
+
+describe("files", () => {
+  const file = {
+    name: "log.txt",
+    mimetype: "text/plain",
+    size: 12,
+    url_private_download: "https://files.slack.com/files-pri/T1-F1/download/log.txt",
+  };
+  const ref = file.url_private_download;
+  const attachment = { name: "log.txt", mimetype: "text/plain", size: 12, ref };
+
+  test("files with a download URL; deleted and external ones are left out", () => {
+    expect(
+      slackFiles([
+        file,
+        { ...file, mode: "tombstone" },
+        { name: "ext", url_private_download: undefined },
+        { title: "untitled", url_private: "https://files.slack.com/x" },
+      ]),
+    ).toEqual([attachment, { name: "untitled", ref: "https://files.slack.com/x" }]);
+  });
+
+  test("mentions, DMs and thread messages carry their files", () => {
+    expect(fromMention(mention({ files: [file] } as never), BOT)?.files).toEqual([attachment]);
+    expect(fromMention(mention({}), BOT)).not.toHaveProperty("files");
+    const shared = dm({ subtype: "file_share", text: "", files: [file] });
+    expect(fromDirectMessage(shared, BOT)).toMatchObject({ text: "", files: [attachment] });
+    const inThread = dm({
+      subtype: "file_share",
+      channel: "C1",
+      channel_type: "channel",
+      thread_ts: "100.0",
+      files: [file],
+    });
+    expect(fromThreadMessage(inThread, BOT)?.files).toEqual([attachment]);
   });
 });

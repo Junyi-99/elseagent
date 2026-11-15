@@ -9,6 +9,24 @@ export type Platform = "slack" | "telegram";
 /** Prefix of Telegram channel IDs (`tg:<chat id>`); Slack IDs are used as they are. */
 export const TELEGRAM_PREFIX = "tg:";
 
+/** A file attached to a message, not downloaded yet (see `Channel.download`). */
+export interface Attachment {
+  name: string;
+  mimetype?: string;
+  /** In bytes, when the platform says. */
+  size?: number;
+  /** How the channel fetches it: a Slack download URL, a Telegram file_id. */
+  ref: string;
+}
+
+/** A file the agent sends along with a reply. */
+export interface OutgoingFile {
+  /** Absolute path on disk. */
+  path: string;
+  /** File name shown in the chat. */
+  name: string;
+}
+
 /** A message addressed to the agent, normalized from a platform event. */
 export interface IncomingMessage {
   channel: string;
@@ -23,6 +41,8 @@ export interface IncomingMessage {
   /** Text with the agent's own @mention removed. */
   text: string;
   isDirect: boolean;
+  /** Files attached to the message (images, documents…). */
+  files?: Attachment[];
   /**
    * Set for a thread message that doesn't mention the agent (Slack channel threads): whether
    * the agent answers depends on whether it follows the thread. Absent: addressed to the agent.
@@ -57,10 +77,12 @@ export interface Reply {
   /**
    * Post Markdown in the conversation, split into several messages if it is long. With
    * `choices`, the last message shows them as buttons; a click arrives as a new message.
-   * Returns the ID of the thread a reply there would continue, when the post started one
-   * (a Slack message ts, a Telegram topic), else the first message's ID or undefined.
+   * With `files`, they are uploaded after the text, in the same conversation; a file that can't
+   * be sent is reported there instead. Returns the ID of the thread a reply there would
+   * continue, when the post started one (a Slack message ts, a Telegram topic), else the first
+   * message's ID or undefined.
    */
-  post(markdown: string, choices?: string[]): Promise<string | undefined>;
+  post(markdown: string, choices?: string[], files?: OutgoingFile[]): Promise<string | undefined>;
   /** Mark the message with a reaction, e.g. "eyes" (Slack names). Errors are ignored. */
   react(name: string): Promise<void>;
   /** Remove one of our reactions from the message. Errors are ignored. */
@@ -78,6 +100,7 @@ export type MessageHandler = (message: IncomingMessage, reply: Reply) => Promise
 export interface ContextMessage {
   user: string;
   text: string;
+  files?: Attachment[];
 }
 
 export interface ThreadContext {
@@ -107,6 +130,8 @@ export interface Channel {
     message: { channel: string; ts: string; threadTs: string | null },
     afterTs: string | null,
   ): Promise<ThreadContext>;
+  /** Download a file attached to one of this channel's messages to `dest` (a file path). */
+  download(file: Attachment, dest: string, signal?: AbortSignal): Promise<void>;
   /** Make sure the agent can post in a channel (name or ID); returns its ID. */
   ensureChannel(ref: string): Promise<string>;
   /** Connect and start delivering messages to `onMessage`. */

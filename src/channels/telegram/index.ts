@@ -1,3 +1,4 @@
+import { formatSize } from "../../agent/files.ts";
 import { ConfigError, type TelegramConfig } from "../../config/index.ts";
 import { splitMarkdown } from "../markdown.ts";
 import {
@@ -5,6 +6,7 @@ import {
   type IncomingMessage,
   type MessageHandler,
   NO_CONTEXT,
+  type OutgoingFile,
   type Reply,
   type ReplyTarget,
   TELEGRAM_PREFIX,
@@ -25,6 +27,9 @@ import {
   chatChannel,
   chatIdOf,
   fromTelegramMessage,
+  isPhotoFile,
+  MAX_UPLOAD_BYTES,
+  mergeAlbum,
   NOT_ALLOWED_TEXT,
   parseCommand,
   REACTION_EMOJI,
@@ -53,11 +58,13 @@ interface Logger {
 export interface TelegramOptions {
   logger?: Logger;
   /** The Bot API client (tests pass a fake). */
-  api?: Pick<TelegramApi, "call">;
+  api?: Pick<TelegramApi, "call" | "upload" | "downloadFile">;
   /** Long-polling timeout for getUpdates, in seconds. */
   pollTimeoutS?: number;
   /** Wait after a failed poll before trying again. */
   retryMs?: number;
+  /** How long to wait for the rest of an album after its first message. */
+  albumWaitMs?: number;
 }
 
 const CHOICE_PREFIX = "choice:";
@@ -91,6 +98,7 @@ export async function createTelegramBot(
     api = new TelegramApi(config.botToken),
     pollTimeoutS = 50,
     retryMs = 5_000,
+    albumWaitMs = 1_500,
   }: TelegramOptions = {},
 ): Promise<TelegramBot> {
   const me = await api.call<TgUser>("getMe").catch((err: Error) => {
@@ -155,8 +163,37 @@ export async function createTelegramBot(
         .catch(() => {});
     };
 
+    /** Send files one by one; one that can't be sent is reported in the chat instead. */
+    const sendFiles = async (files: OutgoingFile[]) => {
+      for (const file of files) {
+        const size = Bun.file(file.path).size;
+        const params = { chat_id: chatId, message_thread_id: threadId };
+        try {
+          if (size > MAX_UPLOAD_BYTES) {
+            throw new Error(`larger than Telegram's ${formatSize(MAX_UPLOAD_BYTES)} limit`);
+          }
+          if (isPhotoFile(file.name, size)) {
+            // Telegram refuses some images as photos (odd dimensions): send those as files.
+            const sent = await api.upload("sendPhoto", params, "photo", file).then(
+              () => true,
+              () => false,
+            );
+            if (sent) continue;
+          }
+          await api.upload("sendDocument", params, "document", file);
+        } catch (err) {
+          logger.warn(`telegram: could not send ${file.name}: ${(err as Error).message}`);
+          await sendHtml(
+            chatId,
+            threadId,
+            `_Could not send \`${file.name}\`: ${(err as Error).message}_`,
+          ).catch(() => {});
+        }
+      }
+    };
+
     return {
-      async post(markdown, choices = []) {
+      async post(markdown, choices = [], files = []) {
         stopStatus();
         // A scheduled run's result opens a topic of its own, where the user can follow up.
         let topic: string | undefined;
@@ -175,7 +212,11 @@ export async function createTelegramBot(
             topic = String(threadId);
           }
         }
-        const parts = splitMarkdown(markdown, TELEGRAM_MARKDOWN_LIMIT);
+        // Files alone need no text message.
+        const parts =
+          markdown.trim() || files.length === 0
+            ? splitMarkdown(markdown, TELEGRAM_MARKDOWN_LIMIT)
+            : [];
         let first: string | undefined;
         for (const [i, part] of parts.entries()) {
           const keyboard =
@@ -185,6 +226,7 @@ export async function createTelegramBot(
           const sent = await sendHtml(chatId, threadId, part, keyboard);
           first ??= String(sent.message_id);
         }
+        await sendFiles(files);
         // Without topics there is no new conversation to continue.
         return target.startsThread ? topic : first;
       },
@@ -237,6 +279,11 @@ export async function createTelegramBot(
     };
   };
 
+  const albums = new Map<
+    string,
+    { messages: IncomingMessage[]; timer?: ReturnType<typeof setTimeout> }
+  >();
+
   const dispatch = async (onMessage: MessageHandler, message: IncomingMessage) => {
     const reply = replyTo(message);
     try {
@@ -269,7 +316,21 @@ export async function createTelegramBot(
     }
     const message = fromTelegramMessage(m);
     if (!message) {
-      await answer("I can only read text messages for now.");
+      await answer("I can read text, photos and files, but not this kind of message.");
+      return;
+    }
+    // The messages of an album arrive one by one: wait for the rest, then handle them as one.
+    if (m.media_group_id) {
+      const key = `${m.chat.id}:${m.media_group_id}`;
+      const album = albums.get(key) ?? { messages: [] };
+      albums.set(key, album);
+      album.messages.push(message);
+      clearTimeout(album.timer);
+      album.timer = setTimeout(() => {
+        albums.delete(key);
+        const merged = mergeAlbum(album.messages);
+        if (merged) void dispatch(onMessage, merged);
+      }, albumWaitMs);
       return;
     }
     // `/new` goes through the queue without a message to react to, like Slack's slash command.
@@ -353,6 +414,7 @@ export async function createTelegramBot(
     replyTo,
     // The Bot API can't read chat history; every message is addressed to the agent anyway.
     threadContext: async () => NO_CONTEXT,
+    download: (file, dest, signal) => api.downloadFile(file.ref, dest, signal),
     async ensureChannel(ref) {
       const chatId = chatIdOf(ref.trim());
       if (chatId === null) throw new Error(`Telegram chats are written tg:<chat id>, not ${ref}`);
@@ -384,6 +446,7 @@ export async function createTelegramBot(
     },
     async stop() {
       abort.abort();
+      for (const album of albums.values()) clearTimeout(album.timer);
       await polling;
     },
   };

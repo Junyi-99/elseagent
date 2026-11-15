@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ThreadItem } from "@openai/codex-sdk";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Input, ThreadItem } from "@openai/codex-sdk";
 import type { Reply, ReplyTarget, ThreadContext } from "../channels/types.ts";
 import { openStateDb, type QueuedMessage, SessionStore } from "../state/index.ts";
 import { REPLY_SCHEMA } from "./reply.ts";
@@ -29,10 +32,11 @@ const message = (
   text,
   scheduleId: null,
   mode: "direct",
+  files: [],
 });
 
-const json = (message: string, choices: string[] = [], reply = true) =>
-  JSON.stringify({ reply, message, choices });
+const json = (message: string, choices: string[] = [], reply = true, files: string[] = []) =>
+  JSON.stringify({ reply, message, choices, files });
 
 /**
  * Fake Codex: records calls; streams `items` as started, then `behave` decides the final
@@ -42,7 +46,7 @@ function fakeCodex(
   behave: (input: string, signal: AbortSignal) => Promise<string>,
   items: ThreadItem[] = [],
 ) {
-  const calls: { kind: "start" | "resume"; id: string; input: string; schema: unknown }[] = [];
+  const calls: { kind: "start" | "resume"; id: string; input: Input; schema: unknown }[] = [];
   let next = 0;
   const thread = (id: string | null) => {
     let threadId = id;
@@ -50,7 +54,7 @@ function fakeCodex(
       get id() {
         return threadId;
       },
-      async runStreamed(input: string, opts: { signal: AbortSignal; outputSchema: unknown }) {
+      async runStreamed(input: Input, opts: { signal: AbortSignal; outputSchema: unknown }) {
         threadId ??= `thread-${++next}`;
         calls.push({
           kind: id ? "resume" : "start",
@@ -60,7 +64,8 @@ function fakeCodex(
         });
         async function* events() {
           for (const item of items) yield { type: "item.started", item };
-          const text = await behave(input, opts.signal);
+          const prompt = typeof input === "string" ? input : (input[0] as { text: string }).text;
+          const text = await behave(prompt, opts.signal);
           yield { type: "item.completed", item: { id: "m", type: "agent_message", text } };
           yield { type: "turn.completed", usage: null };
         }
@@ -86,13 +91,17 @@ function setup(
 ) {
   const { codex, calls } = fakeCodex(behave, items);
   const statuses: string[] = [];
-  const posts: { text: string; choices: string[] }[] = [];
+  const posts: { text: string; choices: string[]; files?: string[] }[] = [];
+  const downloads: string[] = [];
+  const workspace = mkdtempSync(join(tmpdir(), "elseagent-turn-"));
   const reactions: string[] = [];
   const contextCalls: (string | null)[] = [];
   const targets: ReplyTarget[] = [];
   const reply: Reply = {
-    post: async (text, choices = []) => {
-      posts.push({ text, choices });
+    post: async (text, choices = [], files = []) => {
+      posts.push(
+        files.length ? { text, choices, files: files.map((f) => f.name) } : { text, choices },
+      );
       return `9${posts.length}.0`; // ts of the posted message
     },
     react: async (n) => void reactions.push(`+${n}`),
@@ -104,11 +113,15 @@ function setup(
     codexFor: () => codex,
     statusOptions: { minIntervalMs: 0, refreshMs: 60_000 },
     sessions,
-    threadOptions: {},
+    threadOptions: { workingDirectory: workspace },
     queue: { hasNewerPending: () => newerPending },
     replyTo: (target) => {
       targets.push(target);
       return reply;
+    },
+    download: async (_chat, file, dest) => {
+      downloads.push(file.name);
+      await Bun.write(dest, `contents of ${file.name}`);
     },
     threadContext: async (_m, afterTs) => {
       contextCalls.push(afterTs);
@@ -118,7 +131,18 @@ function setup(
     sessionIdleMs: 7 * DAY,
     logger: { warn: () => {} },
   });
-  return { run, calls, sessions, posts, reactions, contextCalls, statuses, targets };
+  return {
+    run,
+    calls,
+    sessions,
+    posts,
+    reactions,
+    contextCalls,
+    statuses,
+    targets,
+    downloads,
+    workspace,
+  };
 }
 
 const never = new AbortController().signal;
@@ -218,6 +242,7 @@ describe("/new", () => {
     text: "/new",
     scheduleId: null,
     mode: "direct",
+    files: [],
   });
   const dm = (text: string, ts: string): QueuedMessage => ({
     ...command(),
@@ -287,6 +312,7 @@ describe("scheduled runs", () => {
     text: 'Scheduled task "daily" (#3): check CI',
     scheduleId: 3,
     mode: "direct",
+    files: [],
   });
 
   test("start a new session, post top-level, and map the posted message's thread", async () => {
@@ -430,5 +456,80 @@ describe("passive messages (thread replies that don't mention the agent)", () =>
     const { run, posts } = setup(async () => json("Done.", [], false));
     await run(message(), never);
     expect(posts).toEqual([{ text: "Done.", choices: [] }]);
+  });
+});
+
+describe("files", () => {
+  test("attachments are downloaded into the workspace and listed; images are shown", async () => {
+    const context: ThreadContext = {
+      messages: [
+        {
+          user: "U2",
+          text: "here's the log",
+          files: [{ name: "build.log", mimetype: "text/plain", ref: "r1" }],
+        },
+      ],
+      omitted: 0,
+    };
+    const { run, calls, downloads, workspace } = setup(async () => json("Seen."), { context });
+    await run(
+      { ...message(), files: [{ name: "shot.png", mimetype: "image/png", size: 10, ref: "r2" }] },
+      never,
+    );
+    expect(downloads).toEqual(["build.log", "shot.png"]);
+    const dir = "attachments/C1-1.0";
+    expect(await Bun.file(join(workspace, dir, "build.log")).text()).toBe("contents of build.log");
+    expect(calls[0]?.input).toEqual([
+      {
+        type: "text",
+        text: [
+          "Messages in this thread since your last reply:",
+          "<@U2>: here's the log",
+          `[attached file: ${dir}/build.log (text/plain, 21 B)]`,
+          "",
+          "Message for you:",
+          "<@U1>: fix the build",
+          `[attached file: ${dir}/shot.png (image/png, 20 B)]`,
+        ].join("\n"),
+      },
+      { type: "local_image", path: join(workspace, dir, "shot.png") },
+    ]);
+  });
+
+  test("a file sent again gets a new name; a failed download is reported to Codex", async () => {
+    const { run, calls, workspace } = setup(async () => json("ok"));
+    const file = { name: "a.txt", ref: "r" };
+    await run({ ...message(), files: [file] }, never);
+    await run({ ...message(), files: [file] }, never);
+    expect(await Bun.file(join(workspace, "attachments/C1-1.0/a-1.txt")).exists()).toBe(true);
+    expect(calls[1]?.input).toContain("attachments/C1-1.0/a-1.txt");
+
+    const big = { name: "huge.bin", size: 500 * 1024 * 1024, ref: "r" };
+    await run({ ...message(), files: [big] }, never);
+    expect(calls[2]?.input).toContain(
+      "[attached file huge.bin: could not be downloaded (larger than 100 MB)]",
+    );
+  });
+
+  test("files named in the reply are sent; missing ones are mentioned", async () => {
+    const { run, posts, workspace } = setup(async () =>
+      json("Here's the chart.", [], true, ["chart.png", "out/missing.csv"]),
+    );
+    await Bun.write(join(workspace, "chart.png"), "png");
+    await run(message(), never);
+    expect(posts).toEqual([
+      {
+        text: "Here's the chart.\n\n_Could not attach `out/missing.csv`: not found._",
+        choices: [],
+        files: ["chart.png"],
+      },
+    ]);
+  });
+
+  test("files alone are a reply", async () => {
+    const { run, posts, workspace } = setup(async () => json("", [], true, ["r.txt"]));
+    await Bun.write(join(workspace, "r.txt"), "report");
+    await run(message(), never);
+    expect(posts).toEqual([{ text: "", choices: [], files: ["r.txt"] }]);
   });
 });

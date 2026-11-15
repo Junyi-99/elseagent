@@ -1,5 +1,6 @@
 import { and, asc, count, eq, gt, inArray, lte, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import type { Attachment } from "../channels/types.ts";
 import type { StateDb } from "./db.ts";
 import { queue } from "./schema.ts";
 
@@ -16,11 +17,14 @@ export interface QueuedMessage {
   scheduleId: number | null;
   /** How sure it is the message is for the agent (see the queue table's `mode`). */
   mode: "direct" | "followup" | "passive";
+  /** Files attached to the message (not downloaded yet). */
+  files: Attachment[];
 }
 
-export type NewQueuedMessage = Omit<QueuedMessage, "id" | "scheduleId" | "mode"> & {
+export type NewQueuedMessage = Omit<QueuedMessage, "id" | "scheduleId" | "mode" | "files"> & {
   scheduleId?: number | null;
   mode?: QueuedMessage["mode"];
+  files?: Attachment[];
 };
 
 const columns = {
@@ -33,6 +37,7 @@ const columns = {
   text: queue.text,
   scheduleId: queue.scheduleId,
   mode: queue.mode,
+  files: queue.files,
 };
 
 /**

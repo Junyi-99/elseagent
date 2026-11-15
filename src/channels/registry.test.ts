@@ -9,6 +9,7 @@ const fake = (platform: Channel["platform"], prefix: string): Channel => ({
   owns: (channel) => channel.startsWith(prefix),
   replyTo: () => ({ platform }) as unknown as Reply,
   threadContext: async () => ({ messages: [{ user: platform, text: "" }], omitted: 0 }),
+  download: async () => {},
   ensureChannel: async (ref) => `${platform}:${ref}`,
   start: async () => {},
   stop: async () => {},

@@ -12,6 +12,7 @@ import {
 import { ensureChannel, joinChannels, type Logger } from "./channels.ts";
 import { CHOICE_ACTION, choiceBlocks, resolvedBlocks } from "./choices.ts";
 import { fetchThreadContext } from "./context.ts";
+import { downloadSlackFile } from "./files.ts";
 import { SLACK_INSTRUCTIONS } from "./instructions.ts";
 import {
   fromDirectMessage,
@@ -82,8 +83,10 @@ export async function createSlackBot(
   const { client } = app;
 
   const replyTo = (target: ReplyTarget): Reply => ({
-    async post(markdown, choices = []) {
-      const parts = splitMarkdown(markdown, SLACK_MARKDOWN_LIMIT);
+    async post(markdown, choices = [], files = []) {
+      // Files alone need no text message.
+      const parts =
+        markdown.trim() || files.length === 0 ? splitMarkdown(markdown, SLACK_MARKDOWN_LIMIT) : [];
       let first: string | undefined;
       for (const [i, part] of parts.entries()) {
         // Continuation parts of a new top-level message go into its thread.
@@ -102,6 +105,31 @@ export async function createSlackBot(
                 markdown_text: part,
               });
         first ??= res.ts;
+      }
+      if (files.length > 0) {
+        const thread_ts = target.threadTs ?? first;
+        try {
+          const file_uploads = await Promise.all(
+            files.map(async (f) => ({
+              file: Buffer.from(await Bun.file(f.path).arrayBuffer()),
+              filename: f.name,
+            })),
+          );
+          await client.files.uploadV2({
+            channel_id: target.channel,
+            ...(thread_ts ? { thread_ts } : {}),
+            file_uploads,
+          } as Parameters<typeof client.files.uploadV2>[0]);
+        } catch (err) {
+          const names = files.map((f) => `\`${f.name}\``).join(", ");
+          logger.warn(`slack: could not upload ${names}: ${(err as Error).message}`);
+          const res = await client.chat.postMessage({
+            channel: target.channel,
+            thread_ts,
+            markdown_text: `_Could not send ${names}: ${(err as Error).message}_`,
+          });
+          first ??= res.ts;
+        }
       }
       return first;
     },
@@ -142,6 +170,7 @@ export async function createSlackBot(
             identity.userId,
           )
         : Promise.resolve(NO_CONTEXT), // top-level DM: nothing to add
+    download: (file, dest, signal) => downloadSlackFile(config.botToken, file, dest, signal),
     ensureChannel: (ref) => ensureChannel(client, ref),
     async start(onMessage) {
       const dispatch = async (message: IncomingMessage) => {

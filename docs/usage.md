@@ -29,6 +29,11 @@ configured, one agent answers in both, sharing its queue and limits.
   to wait for an answer, chat-friendly Markdown); `prompt` is added after them.
 - When Codex needs a decision it can offer choices, shown as buttons. Clicking one sends the
   pick to the agent as the next message.
+- Files and images sent to the agent (in the message, or earlier in a Slack thread) are saved
+  under `attachments/<conversation>/` in the workspace, and Codex is told where they are; images
+  are also shown to Codex as images. Files up to 100 MB (Telegram lets bots download up to 20 MB).
+- The agent can send files back (a chart, a report, an export): it names them with its reply and
+  they are uploaded after the text, up to 10 per reply and 100 MB each (50 MB on Telegram).
 - At most `maxConcurrent` Codex turns run at once. Further messages wait in a queue (first
   come, first served, one turn at a time per conversation).
 - The session mapping and the queue live in SQLite under `stateDir`, so queued messages
