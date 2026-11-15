@@ -61,8 +61,10 @@ with every Codex turn, so the agent can inspect and manage itself when asked:
   starts a new Codex session that reads the thread again. Usage records are kept.
 
 Ask in plain words, e.g. "every weekday at 9am, check the CI dashboard and post a summary in
-#ops". Each run starts a new Codex session and posts its result as a new conversation (a Slack
-message, a Telegram topic) where you can follow up. Schedules use `timezone` unless they
+#ops". Each run announces that it is starting in a new conversation (a Slack message or Telegram
+topic), then runs a new Codex session and posts the result in that thread. Failures produce a brief
+notification; internal error details stay in the logs. Reply there to recover the same session.
+Schedules use `timezone` unless they
 set their own, run at most every 5 minutes, and are limited to 50 per agent. A run missed while
 the agent was down happens once after it restarts.
 

@@ -154,8 +154,8 @@ export function formatInput(
  *
  * A Slack message continues its conversation's Codex thread (or starts one) with the thread
  * messages it hasn't seen, and the reply goes into that thread. A scheduled run always starts a
- * new Codex thread and posts its result as a new top-level message; replies in that message's
- * thread then continue the run's session like any conversation.
+ * new Codex thread and announces the run first; results and errors go in that announcement's
+ * thread, where replies continue the run's session like any conversation.
  *
  * A passive message (a thread reply that doesn't mention the agent) is quiet: no reactions, no
  * status, no error messages, and Codex may decide not to reply. It is skipped when the session
@@ -208,10 +208,10 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
   return async (message, signal) => {
     const scheduled = message.scheduleId !== null;
     const passive = message.mode === "passive";
-    const reply = deps.replyTo({ ...message, startsThread: scheduled });
+    let reply = deps.replyTo({ ...message, startsThread: scheduled });
     // Scheduled runs and slash commands have no user message to react to; passive messages
     // weren't addressed to the agent.
-    const quiet = !message.ts || passive;
+    let quiet = !message.ts || passive;
     const react = (name: string) => (quiet ? Promise.resolve() : reply.react(name));
     const unreact = (name: string) => (quiet ? Promise.resolve() : reply.unreact(name));
     await unreact(REACTIONS.queued);
@@ -231,6 +231,20 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     ) {
       return; // seen already, or a later turn will see it as context
     }
+    let conversation: { key: string; lastSeenTs: string } | null = scheduled
+      ? null
+      : { key: message.conversationKey, lastSeenTs: message.ts };
+    if (scheduled) {
+      const name = message.text.match(/^Scheduled task "(.*)" \(#\d+/)?.[1];
+      const ts = await reply.post(`Running scheduled task: ${name || `#${message.scheduleId}`}.`);
+      if (ts) {
+        conversation = { key: `${message.channel}:${ts}`, lastSeenTs: ts };
+        // Telegram returns a topic ID here, which cannot be used as a message reaction target.
+        const reactionTs = message.channel.startsWith("tg:") ? "" : ts;
+        reply = deps.replyTo({ channel: message.channel, ts: reactionTs, threadTs: ts });
+        quiet = !reactionTs;
+      }
+    }
     await react(REACTIONS.working);
 
     const startedAt = now();
@@ -241,10 +255,6 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     const timeout = AbortSignal.timeout(turnTimeoutMs);
     const turnSignal = AbortSignal.any([timeout, signal]);
 
-    // Where the conversation continues: the user's thread, or the scheduled run's new message.
-    let conversation: { key: string; lastSeenTs: string } | null = scheduled
-      ? null
-      : { key: message.conversationKey, lastSeenTs: message.ts };
     let replied = false;
     const postAndTrack = async (
       text: string,
@@ -347,7 +357,9 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         );
       } else {
         logger.warn(`codex: turn failed for ${message.conversationKey}: ${(err as Error).message}`);
-        await postAndTrack(`Codex failed: ${(err as Error).message}`);
+        await postAndTrack(
+          "The task failed. Reply in this thread to ask me to investigate or continue.",
+        );
       }
     } finally {
       await status.stop();
@@ -356,7 +368,7 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       const where = conversation as { key: string; lastSeenTs: string } | null;
       const superseded = stopReason(signal)?.kind === "superseded";
       if (thread.id && where && !superseded) sessions.touch(where.key, thread.id, where.lastSeenTs);
-      if (replied && !scheduled) sessions.replied(message.conversationKey, message.user);
+      if (replied && where) sessions.replied(where.key, message.user);
       await unreact(REACTIONS.working);
       if (failed && stopReason(signal)?.kind !== "superseded") await react(REACTIONS.failed);
     }

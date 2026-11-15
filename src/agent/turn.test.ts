@@ -239,7 +239,12 @@ describe("turn runner", () => {
       throw new Error("model overloaded");
     });
     await run(message(), never);
-    expect(posts).toEqual([{ text: "Codex failed: model overloaded", choices: [] }]);
+    expect(posts).toEqual([
+      {
+        text: "The task failed. Reply in this thread to ask me to investigate or continue.",
+        choices: [],
+      },
+    ]);
     expect(reactions.at(-1)).toBe(`+${REACTIONS.failed}`);
   });
 });
@@ -328,7 +333,7 @@ describe("scheduled runs", () => {
     files: [],
   });
 
-  test("start a new session, post top-level, and map the posted message's thread", async () => {
+  test("announces before execution, posts results in that thread, and keeps the session", async () => {
     const { run, calls, posts, reactions, sessions, contextCalls, statuses, targets } = setup(
       async () => json("CI is green."),
     );
@@ -343,13 +348,50 @@ describe("scheduled runs", () => {
         schema: REPLY_SCHEMA,
       },
     ]);
-    expect(posts).toEqual([{ text: "CI is green.", choices: [] }]);
-    expect(reactions).toEqual([]); // there is no user message to react to
+    expect(posts).toEqual([
+      { text: "Running scheduled task: daily.", choices: [] },
+      { text: "CI is green.", choices: [] },
+    ]);
+    expect(targets[1]).toEqual({ channel: "C_OPS", ts: "91.0", threadTs: "91.0" });
+    expect(reactions).toEqual([`+${REACTIONS.working}`, `-${REACTIONS.working}`]);
     expect(statuses).toEqual([]); // and no thread to show a status in
     expect(contextCalls).toEqual([]);
     // Follow-ups in the posted message's thread continue this run's session.
     expect(sessions.get("C_OPS:91.0", DAY)).toEqual({ threadId: "thread-1", lastSeenTs: "91.0" });
     expect(sessions.get("schedule:3:1000", DAY)).toBeNull();
+  });
+
+  test("failure marks the announcement, hides raw errors, and a reply resumes the run", async () => {
+    let attempt = 0;
+    const { run, calls, posts, targets, reactions, sessions } = setup(async () => {
+      if (++attempt === 1) throw new Error('Failed to parse item: {"private":"webpage output');
+      return json("Recovered.");
+    });
+    await run(scheduled(), never);
+    expect(posts[0]?.text).toBe("Running scheduled task: daily.");
+    expect(posts[1]?.text).toBe(
+      "The task failed. Reply in this thread to ask me to investigate or continue.",
+    );
+    expect(JSON.stringify(posts)).not.toContain("private");
+    expect(targets[1]).toEqual({ channel: "C_OPS", ts: "91.0", threadTs: "91.0" });
+    expect(reactions.at(-1)).toBe(`+${REACTIONS.failed}`);
+    expect(sessions.get("C_OPS:91.0", DAY)?.threadId).toBe("thread-1");
+    expect(sessions.followState("C_OPS:91.0")?.repliedTo).toBe("U1");
+
+    await run(
+      { ...message("C_OPS:91.0", "continue", "99.0"), channel: "C_OPS", threadTs: "91.0" },
+      never,
+    );
+    expect(calls[1]).toMatchObject({ kind: "resume", id: "thread-1" });
+    expect(posts.at(-1)?.text).toBe("Recovered.");
+  });
+
+  test("the announcement is delivered before Codex starts", async () => {
+    const { run, posts } = setup(async () => {
+      expect(posts).toEqual([{ text: "Running scheduled task: daily.", choices: [] }]);
+      return json("Done.");
+    });
+    await run(scheduled(), never);
   });
 
   test("each run is a new session", async () => {

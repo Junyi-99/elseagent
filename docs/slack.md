@@ -49,8 +49,9 @@ Subscribe to bot events**); without it Slack shows "Stop isn't available for thi
   thread). Messages you sent meanwhile are still handled after it.
 - In a DM, the `/new` slash command starts the DM over with a new session. In channels, start a
   new thread instead.
-- Scheduled tasks post their result as a new message in a channel; reply in its thread to follow
-  up.
+- Scheduled tasks first post a start message in a channel, then post their result in its thread.
+  A failed run marks the start message with ❌ and posts a brief error without internal details.
+  Reply in that thread to investigate or resume the same session.
 
 ## Threads
 

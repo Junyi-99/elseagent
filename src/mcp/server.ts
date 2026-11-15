@@ -165,9 +165,9 @@ export function buildMcpServer(admin: Admin, caller: Caller): McpServer {
     "schedule_create",
     {
       description:
-        "Create a recurring task. On each run a new Codex session does `prompt` and posts the " +
-        "result as a new message in `channel` (in Telegram, a new topic); people can follow up " +
-        "in its thread. Runs at most " +
+        "Create a recurring task. Each run posts a start message in `channel` (in Telegram, " +
+        "a new topic), then a new Codex session does `prompt` and posts its result or a brief " +
+        "error in that thread; people can follow up to recover the session. Runs at most " +
         "every 5 minutes. Confirm the schedule (next run time) to the user afterwards.",
       inputSchema: {
         name: z.string().min(1).max(80).describe("Short name, e.g. 'Daily CI check'"),
