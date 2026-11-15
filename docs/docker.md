@@ -4,30 +4,31 @@ One [`Dockerfile`](../Dockerfile), two images. The container is the agent's sand
 its commands inside it with full access, so the agent can use the network, install packages and
 write anywhere in the container, but nothing outside it.
 
-| Image  | Published                                 | Contains                                                                                                                         |
-| ------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `base` | `ghcr.io/elsescape/elseagent-base:latest` | Command-line tools: git/GitHub, C/C++, Python + uv, Go, Node.js, Bun, kubectl/Helm, Cloudflare CLIs, ImageMagick, ffmpeg, yt-dlp |
-| `full` | `ghcr.io/elsescape/elseagent-full:latest` | `base` + Chromium (Playwright), LibreOffice, pandoc, PDF tools, CJK/emoji fonts, Python/Node libraries for Office files and PDFs |
+| Image  | Published                                 | Contains                                                                                                                                                                                                |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `base` | `ghcr.io/elsescape/elseagent-base:latest` | Command-line tools: git/GitHub, C/C++, Python + uv (numpy, pandas), Go, Node.js, Bun, kubectl/Helm, Cloudflare CLIs, sops/age, crane, Postgres/MySQL/Redis clients, DuckDB, ImageMagick, ffmpeg, yt-dlp |
+| `full` | `ghcr.io/elsescape/elseagent-full:latest` | `base` + Chromium (Playwright), LibreOffice, pandoc, PDF tools, CJK/emoji fonts, Python/Node libraries for Office files and PDFs, ClickHouse (`clickhouse-client`, `clickhouse-local`) and chDB         |
 
 The [`images` workflow](../.github/workflows/images.yml) builds both for `linux/amd64` and
 `linux/arm64` on every push to `main` and publishes them as `latest`; older versions are deleted,
 so `latest` is the only one. The images are public: no login needed. To build
 locally instead: `docker build --target full -t elseagent:full .` (or `--target base`). Sizes are
-about 4.2 GB (`base`) and 6.5 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
+about 4.8 GB (`base`) and 7.5 GB (`full`). Tool versions are pinned as `ARG`s at the top of the
 `base` stage (Node is the current LTS); the browser is Playwright's headless Chromium.
 
 ## What each section is for
 
 | Need                                    | Tools                                                                                                                                                                                                                 |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basics                                  | `curl`, `wget`, `aria2c`, `jq`, `yq`, `rg`, `fd`, `zip`/`unzip`/`7z`, `tmux`, `bc`, `envsubst`, `shellcheck`, `lsof`, `strace`, `sqlite3`, `ssh`, `sudo`                                                              |
+| Basics                                  | `curl`, `wget`, `aria2c`, `jq`, `yq`, `rg`, `fd`, `zip`/`unzip`/`7z`/`zstd`/`xz`, `tmux`, `bc`, `envsubst`, `shellcheck`, `lsof`, `strace`, `dig`, `nc`, `ip`/`ss`, `sqlite3`, `ssh`, `sudo`                          |
 | 1. GitHub                               | `git`, `git-lfs`, `gh`; with `GH_TOKEN` set, `git` over HTTPS is authenticated through `gh`                                                                                                                           |
-| 2. Code and dependencies                | `gcc`/`g++`, `cmake`, `ninja`, `gdb`; `python3`, `uv`; `go`; `node`, `npm`, `pnpm`/`yarn` (corepack), `bun`                                                                                                           |
-| 3. Cloud                                | `kubectl`, `helm`, `wrangler`, `cloudflared`                                                                                                                                                                          |
+| 2. Code and dependencies                | `gcc`/`g++`, `cmake`, `ninja`, `gdb`; `python3`, `uv` (numpy, pandas, requests, …); `go`; `node`, `npm`, `pnpm`/`yarn` (corepack), `bun`; `ast-grep` (structural search and rewrite)                                  |
+| 3. Cloud                                | `kubectl`, `helm`, `wrangler`, `cloudflared`; `sops` + `age` (encrypted config files); `crane` (registry images: tags, digests, copy)                                                                                 |
 | 4. Images                               | ImageMagick (`magick`), `rsvg-convert`, `cwebp`, `optipng`, `jpegoptim`, `exiftool`, Pillow                                                                                                                           |
 | 5. Video                                | `yt-dlp` (YouTube, Bilibili, …) with Node as its JavaScript runtime, `ffmpeg`; `full` adds a browser                                                                                                                  |
 | 6. Office, websites, marketing (`full`) | LibreOffice (headless), `pandoc`, Playwright Chromium (HTML → PNG/PDF), fonts; Python: python-docx, python-pptx, openpyxl, xlsxwriter, pandas, matplotlib, reportlab, weasyprint, pypdf; Node: pptxgenjs, docx; `zip` |
 | 7. Anything else                        | passwordless `sudo apt-get install`, `uv pip install` / `uv tool install`, `npm i -g`, `go install`, `bun add -g`                                                                                                     |
+| 8. Databases and data                   | `psql`, `mariadb`, `redis-cli`; DuckDB (`duckdb`: SQL over CSV/Parquet/JSON), Miller (`mlr`: CSV/TSV); `full` adds ClickHouse (`clickhouse-client`, `clickhouse-local`) and chDB (Python)                             |
 
 Python libraries live in the `/opt/tools` virtualenv, which is first on `PATH`, so plain
 `python` scripts can import them. Global Node packages resolve through `NODE_PATH`.
@@ -47,6 +48,9 @@ Two things go into the container:
   | `GH_TOKEN`                                      | `gh`, and `git` over HTTPS for github.com  |
   | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `wrangler`                                 |
   | `KUBECONFIG`                                    | `kubectl`, `helm` (mount the file as well) |
+  | `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`… | `psql`                                     |
+  | `MYSQL_HOST`, `MYSQL_PWD`                       | `mariadb`                                  |
+  | `SOPS_AGE_KEY`                                  | `sops` (decrypting with an age key)        |
 
   With Docker Compose they go in `.env`; on Kubernetes in the `elseagent-env` Secret.
 

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # elseagent images. The container is the agent's sandbox: Codex runs commands in it with
-# full access (set `codex.sandboxMode: danger-full-access` in the config).
+# full access (ELSEAGENT_SANDBOX_MODE=danger-full-access, set below).
 #
 #   docker build --target base -t elseagent:base .   # CLI tools: code, git/GitHub, cloud, media
 #   docker build --target full -t elseagent:full .   # base + Chromium, office, fonts, documents
@@ -9,6 +9,7 @@
 # Numbers in the section titles refer to what the agent must be able to do:
 #   1 GitHub   2 write code & manage deps   3 cloud CLIs   4 images   5 YouTube/Bilibili video
 #   6 office files, websites, marketing material, Excel reports   7 install anything else itself
+#   8 databases and data files
 
 ARG DEBIAN_VERSION=trixie
 
@@ -38,6 +39,10 @@ ARG NODE_VERSION=26.13.1 \
     CLOUDFLARED_VERSION=2026.11.0 \
     YQ_VERSION=4.54.3 \
     WRANGLER_VERSION=4.162.0 \
+    AST_GREP_VERSION=0.51.2 \
+    SOPS_VERSION=3.13.3 \
+    CRANE_VERSION=0.22.1 \
+    DUCKDB_VERSION=2.0.0 \
     CODEX_VERSION=0.169.0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -50,13 +55,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Everyday shell tools: downloads (curl, wget, aria2 for big/parallel downloads), search
 # (ripgrep, fd), JSON/YAML (jq, yq), archives incl. making zips for websites (6), scripting
 # helpers (bc, envsubst, shellcheck), tmux for long-running processes, debugging (lsof,
-# strace), network checks, and sudo so the agent can apt-install more (7).
+# strace), network checks (dig, nc, ping, ip/ss), and sudo so the agent can apt-install more (7).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget aria2 gnupg sudo tzdata locales \
       bash-completion less nano vim-tiny procps psmisc htop tree file tmux \
       jq ripgrep fd-find rsync patch bc gettext-base shellcheck \
       zip unzip xz-utils bzip2 zstd p7zip-full \
-      openssh-client dnsutils iputils-ping netcat-openbsd lsof strace \
+      openssh-client dnsutils iputils-ping netcat-openbsd iproute2 lsof strace \
       sqlite3 \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && curl -fsSL -o /usr/local/bin/yq \
@@ -89,7 +94,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- 2. Python + uv -----------------------------------------------------------------------
 # System Python, and uv for projects, virtualenvs and other Python versions (`uv python
-# install`). /opt/tools is a shared venv on PATH holding the agent's ready-made libraries,
+# install`). /opt/tools is a shared venv on PATH holding the agent's ready-made libraries
+# (HTTP, HTML/YAML parsing, numpy + pandas for data; Pillow is added with the image tools),
 # so `python script.py` works for quick scripts; the agent can `uv pip install` into it.
 COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /uvx /usr/local/bin/
 ENV UV_LINK_MODE=copy \
@@ -99,7 +105,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && uv venv /opt/tools --python /usr/bin/python3 \
     && uv pip install --python /opt/tools --no-cache \
-      requests httpx beautifulsoup4 lxml pyyaml rich
+      requests httpx beautifulsoup4 lxml pyyaml rich numpy pandas
 
 # --- 2. Go ---------------------------------------------------------------------------------
 ENV PATH=/usr/local/go/bin:$PATH
@@ -118,6 +124,13 @@ RUN case "$TARGETARCH" in amd64) NODE_ARCH=x64 BUN_ARCH=x64 ;; arm64) NODE_ARCH=
     && unzip -q -j /tmp/bun.zip -d /usr/local/bin && rm /tmp/bun.zip \
     && ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
+# --- 2. Structural code search: ast-grep --------------------------------------------------
+# ast-grep: search and rewrite code by syntax tree, more reliable than regex for large refactors.
+RUN case "$TARGETARCH" in amd64) SG_ARCH=x86_64 ;; arm64) SG_ARCH=aarch64 ;; esac \
+    && curl -fsSL -o /tmp/sg.zip \
+      "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${SG_ARCH}-unknown-linux-gnu.zip" \
+    && unzip -q /tmp/sg.zip ast-grep -d /usr/local/bin && rm /tmp/sg.zip
+
 # --- 3. Cloud: Kubernetes and Cloudflare --------------------------------------------------
 # kubectl (+ kustomize built in) and Helm; Cloudflare's wrangler (Workers, Pages, R2, DNS…)
 # and cloudflared (tunnels, Access). Credentials come from the environment or mounted files
@@ -133,6 +146,28 @@ RUN curl -fsSL -o /usr/local/bin/kubectl \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g --no-fund --no-audit "wrangler@${WRANGLER_VERSION}" \
     && npm cache clean --force
+
+# --- 3. Secrets and container images ------------------------------------------------------
+# age + sops for encrypted config files (many repositories keep secrets in sops files; keys
+# from SOPS_AGE_KEY or SOPS_AGE_KEY_FILE), and crane to inspect and copy images in registries
+# (tags, digests, layers) without a Docker daemon.
+RUN apt-get update && apt-get install -y --no-install-recommends age \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /usr/local/bin/sops \
+      "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.${TARGETARCH}" \
+    && chmod +x /usr/local/bin/sops \
+    && case "$TARGETARCH" in amd64) CRANE_ARCH=x86_64 ;; arm64) CRANE_ARCH=arm64 ;; esac \
+    && curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_${CRANE_ARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin crane
+
+# --- 8. Databases and data files ----------------------------------------------------------
+# Clients for Postgres (psql), MySQL/MariaDB and Redis, to look into production data;
+# DuckDB to query CSV/Parquet/JSON files with SQL; Miller (mlr) for CSV/TSV on the command line.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      postgresql-client mariadb-client redis-tools miller \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb-cli-linux-${TARGETARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin duckdb
 
 # --- 4. Images -----------------------------------------------------------------------------
 # ImageMagick (convert, resize, compose, text), SVG rendering, WebP/PNG/JPEG optimizers,
@@ -188,17 +223,29 @@ ENTRYPOINT ["elseagent"]
 CMD ["run", "-c", "/etc/elseagent/config.yaml"]
 
 # ============================================================================================
-# full: base + browser, office and document tooling
+# full: base + browser, office and document tooling, ClickHouse
 # ============================================================================================
 FROM base AS full
 
+ARG TARGETARCH
 # Python and Node Playwright versions that use the same Chromium build (1255), so one browser
 # serves both. Check `browsers.json` in each package when upgrading.
 ARG PLAYWRIGHT_PY_VERSION=1.65.2 \
-    PLAYWRIGHT_NODE_VERSION=1.65.1
+    PLAYWRIGHT_NODE_VERSION=1.65.1 \
+    CLICKHOUSE_VERSION=26.10.4.207 \
+    CHDB_VERSION=4.4.0
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     NODE_PATH=/usr/local/lib/node_modules
+
+# --- 8. ClickHouse -------------------------------------------------------------------------
+# The single `clickhouse` binary (~500 MB, hence `full`): clickhouse-client for servers and
+# ClickHouse Cloud, clickhouse-local to run SQL over local or remote files, and a server for
+# tests. chDB (ClickHouse embedded in Python) is installed with the Python libraries below.
+RUN curl -fsSL "https://github.com/ClickHouse/ClickHouse/releases/download/v${CLICKHOUSE_VERSION}-stable/clickhouse-common-static-${CLICKHOUSE_VERSION}-${TARGETARCH}.tgz" \
+      | tar -xz -C /usr/local/bin --strip-components=3 \
+        "clickhouse-common-static-${CLICKHOUSE_VERSION}/usr/bin/clickhouse" \
+    && for tool in client local server; do ln -s clickhouse "/usr/local/bin/clickhouse-$tool"; done
 
 # --- 6. Fonts ------------------------------------------------------------------------------
 # Chinese/Japanese/Korean and emoji, plus metric-compatible Office fonts (Arial/Times/
@@ -242,6 +289,6 @@ USER elseagent
 # pdfplumber), templating (jinja2, markdown), QR codes.
 RUN uv pip install --python /opt/tools --no-cache \
       "playwright==${PLAYWRIGHT_PY_VERSION}" \
-      python-docx python-pptx openpyxl xlsxwriter pandas matplotlib \
+      python-docx python-pptx openpyxl xlsxwriter matplotlib "chdb==${CHDB_VERSION}" \
       reportlab weasyprint pypdf pdfplumber markdown jinja2 qrcode \
     && playwright install --only-shell chromium
