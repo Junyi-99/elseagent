@@ -96,6 +96,10 @@ function setup(
     context = { messages: [], omitted: 0 } as ThreadContext,
     items = [] as ThreadItem[],
     newerPending = false,
+    /** Posts return no ts (a Telegram chat without topics). */
+    noThreads = false,
+    /** Posts whose text matches throw. */
+    postFails = (_text: string): boolean => false,
   } = {},
 ) {
   const { codex, calls } = fakeCodex(behave, items);
@@ -109,10 +113,11 @@ function setup(
   const targets: ReplyTarget[] = [];
   const reply: Reply = {
     post: async (text, choices = [], files = []) => {
+      if (postFails(text)) throw new Error("post failed");
       posts.push(
         files.length ? { text, choices, files: files.map((f) => f.name) } : { text, choices },
       );
-      return `9${posts.length}.0`; // ts of the posted message
+      return noThreads ? undefined : `9${posts.length}.0`; // ts of the posted message
     },
     react: async (n) => void reactions.push(`+${n}`),
     unreact: async (n) => void reactions.push(`-${n}`),
@@ -348,7 +353,7 @@ describe("scheduled runs", () => {
         schema: REPLY_SCHEMA,
       },
     ]);
-    expect(posts).toEqual([{ text: "[daily]\n\nCI is green.", choices: [] }]);
+    expect(posts).toEqual([{ text: "⏰ **daily**\n\nCI is green.", choices: [] }]);
     expect(reactions).toEqual([]);
     expect(statuses).toEqual([]); // and no thread to show a status in
     expect(contextCalls).toEqual([]);
@@ -366,7 +371,7 @@ describe("scheduled runs", () => {
     await run(scheduled(), never);
     expect(posts).toHaveLength(1);
     expect(posts[0]?.text).toBe(
-      "[daily]\n\nThe task failed. Reply in this thread to ask me to investigate or continue.",
+      "⏰ **daily**\n\nThe task failed. Reply in this thread to ask me to investigate or continue.",
     );
     expect(JSON.stringify(posts)).not.toContain("private");
     expect(reactions).toEqual([]);
@@ -411,10 +416,45 @@ describe("scheduled runs", () => {
     await Bun.write(join(workspace, "report.txt"), "Full report");
     await run(scheduled(), never);
     expect(posts).toEqual([
-      { text: "[daily]\n\nTwo services need attention.\n\nDetails in thread.", choices: [] },
+      { text: "⏰ **daily**\n\nTwo services need attention.\n\nDetails in thread.", choices: [] },
       { text: details, choices: ["Investigate", "Dismiss"], files: ["report.txt"] },
     ]);
     expect(targets[1]).toEqual({ channel: "C_OPS", ts: "", threadTs: "91.0" });
+    expect(sessions.get("C_OPS:91.0", DAY)?.threadId).toBe("thread-1");
+  });
+
+  test("a silent run's Codex thread is tracked so cleanup can delete it", async () => {
+    const { run, sessions } = setup(async () => json("", [], false));
+    await run(scheduled(), never);
+    expect(sessions.unusedThreads(Date.now() + 1)).toEqual([
+      { threadId: "thread-1", conversationKey: "schedule:3:1000" },
+    ]);
+  });
+
+  test("without a thread (Telegram without topics) long results follow in the chat", async () => {
+    const details = `Summary.\n\n${"Details. ".repeat(200)}`.trim();
+    const { run, posts, targets } = setup(async () => json(details, ["Retry"]), {
+      noThreads: true,
+    });
+    await run(scheduled(), never);
+    expect(posts).toEqual([
+      { text: "⏰ **daily**\n\nSummary.\n\nDetails in thread.", choices: [] },
+      { text: details, choices: ["Retry"] },
+    ]);
+    expect(targets[1]).toEqual({ channel: "C_OPS", ts: "" });
+  });
+
+  test("an error after the result was posted goes in its thread", async () => {
+    const details = `Summary.\n\n${"Details. ".repeat(200)}`.trim();
+    const { run, posts, targets, sessions } = setup(async () => json(details), {
+      postFails: (text) => text === details,
+    });
+    await run(scheduled(), never);
+    expect(posts.map((p) => p.text)).toEqual([
+      "⏰ **daily**\n\nSummary.\n\nDetails in thread.",
+      "The task failed. Reply in this thread to ask me to investigate or continue.",
+    ]);
+    expect(targets.at(-1)).toEqual({ channel: "C_OPS", ts: "", threadTs: "91.0" });
     expect(sessions.get("C_OPS:91.0", DAY)?.threadId).toBe("thread-1");
   });
 
