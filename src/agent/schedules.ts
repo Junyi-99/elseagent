@@ -19,8 +19,8 @@ export interface CreateScheduleInput {
 export function scheduledTaskInput(schedule: Schedule, at: number): string {
   return [
     `Scheduled task "${schedule.name}" (#${schedule.id}, created by <@${schedule.createdBy}>),`,
-    `running at ${formatTime(at, schedule.timezone)}. A start message has opened this run's thread`,
-    "(in Telegram, a new topic). Your reply is posted there; people may follow up to continue. Task:",
+    `running at ${formatTime(at, schedule.timezone)}. Your reply is posted as a new message`,
+    "(in Telegram, a new topic); people may follow up in its thread. Return reply: false to stay silent. Task:",
     "",
     schedule.prompt,
   ].join("\n");

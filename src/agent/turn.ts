@@ -208,10 +208,10 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
   return async (message, signal) => {
     const scheduled = message.scheduleId !== null;
     const passive = message.mode === "passive";
-    let reply = deps.replyTo({ ...message, startsThread: scheduled });
+    const reply = deps.replyTo({ ...message, startsThread: scheduled });
     // Scheduled runs and slash commands have no user message to react to; passive messages
     // weren't addressed to the agent.
-    let quiet = !message.ts || passive;
+    const quiet = !message.ts || passive;
     const react = (name: string) => (quiet ? Promise.resolve() : reply.react(name));
     const unreact = (name: string) => (quiet ? Promise.resolve() : reply.unreact(name));
     await unreact(REACTIONS.queued);
@@ -234,17 +234,6 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
     let conversation: { key: string; lastSeenTs: string } | null = scheduled
       ? null
       : { key: message.conversationKey, lastSeenTs: message.ts };
-    if (scheduled) {
-      const name = message.text.match(/^Scheduled task "(.*)" \(#\d+/)?.[1];
-      const ts = await reply.post(`Running scheduled task: ${name || `#${message.scheduleId}`}.`);
-      if (ts) {
-        conversation = { key: `${message.channel}:${ts}`, lastSeenTs: ts };
-        // Telegram returns a topic ID here, which cannot be used as a message reaction target.
-        const reactionTs = message.channel.startsWith("tg:") ? "" : ts;
-        reply = deps.replyTo({ channel: message.channel, ts: reactionTs, threadTs: ts });
-        quiet = !reactionTs;
-      }
-    }
     await react(REACTIONS.working);
 
     const startedAt = now();
@@ -326,8 +315,8 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       }
       await status.stop();
       const { reply: answer, message: text, choices, files: paths } = parseReply(finalResponse);
-      // Only a message the agent wasn't asked directly may go unanswered.
-      if (answer || message.mode === "direct") {
+      // Scheduled checks may stay silent even though their queue mode defaults to direct.
+      if (answer || (!scheduled && message.mode === "direct")) {
         const { files, problems } = await resolveReplyFiles(paths, workspace);
         const notes = problems.length ? `\n\n_Could not attach ${problems.join("; ")}._` : "";
         const body = text.trim() + notes;

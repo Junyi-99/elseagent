@@ -1,6 +1,6 @@
 /** What Codex returns at the end of a turn (enforced with the SDK's `outputSchema`). */
 export interface AgentReply {
-  /** False: stay silent (only honored for messages not addressed to the agent). */
+  /** False: stay silent (honored for scheduled runs and messages not addressed to the agent). */
   reply: boolean;
   /** Markdown posted to the chat. */
   message: string;
@@ -17,8 +17,8 @@ export const REPLY_SCHEMA = {
     reply: {
       type: "boolean",
       description:
-        "Whether to post your message. Always true, except for a message not addressed to you " +
-        "that you decide not to answer.",
+        "Whether to post your message. Always true, except for scheduled checks with nothing to report " +
+        "or a message not addressed to you that you decide not to answer.",
     },
     message: { type: "string", description: "Your reply, as Markdown (empty when not replying)." },
     choices: {
