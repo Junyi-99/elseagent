@@ -26,7 +26,7 @@ import {
   type SavedFile,
   saveAttachments,
 } from "./files.ts";
-import { parseReply, REPLY_SCHEMA } from "./reply.ts";
+import { formatScheduledReply, parseReply, REPLY_SCHEMA } from "./reply.ts";
 import { stopReason, type TurnRunner } from "./scheduler.ts";
 import { describeItem, StatusTicker, THINKING } from "./status.ts";
 
@@ -250,10 +250,24 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       choices: string[] = [],
       files: OutgoingFile[] = [],
     ) => {
-      const ts = await reply.post(text, choices, files);
+      const title =
+        message.text.match(/^Scheduled task "(.*)" \(#[0-9]+/)?.[1] ||
+        `Task #${message.scheduleId}`;
+      const formatted = scheduled ? formatScheduledReply(title, text) : { root: text };
+      const ts = await reply.post(
+        formatted.root,
+        formatted.details ? [] : choices,
+        formatted.details ? [] : files,
+      );
       replied = true;
       if (scheduled && ts && !conversation) {
         conversation = { key: `${message.channel}:${ts}`, lastSeenTs: ts };
+      }
+      if (formatted.details) {
+        if (!ts) throw new Error("Could not identify the scheduled result thread");
+        await deps
+          .replyTo({ channel: message.channel, ts: "", threadTs: ts })
+          .post(formatted.details, choices, files);
       }
     };
 

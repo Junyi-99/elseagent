@@ -22,6 +22,8 @@ export function scheduledTaskInput(schedule: Schedule, at: number): string {
     `running at ${formatTime(at, schedule.timezone)}. Your reply is posted as a new message`,
     "(in Telegram, a new topic); people may follow up in its thread. Return reply: false to stay silent. Task:",
     "",
+    "For a long result, begin with a short summary paragraph (at most 400 characters). The full result will be posted in the thread below that summary. Do not add the task title; it is added automatically.",
+    "",
     schedule.prompt,
   ].join("\n");
 }

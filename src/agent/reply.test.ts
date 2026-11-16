@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseReply } from "./reply.ts";
+import { formatScheduledReply, parseReply } from "./reply.ts";
 
 describe("parseReply", () => {
   test("reads the structured reply", () => {
@@ -39,5 +39,28 @@ describe("parseReply", () => {
     expect(choices.slice(0, 4)).toEqual(["a", "b", "c", "d"]);
     expect(choices).toHaveLength(5);
     expect(choices[4]).toHaveLength(75);
+  });
+});
+
+describe("formatScheduledReply", () => {
+  test("short results and errors include the task title", () => {
+    expect(formatScheduledReply("Daily CI", "CI is green.")).toEqual({
+      root: "[Daily CI]\n\nCI is green.",
+    });
+  });
+
+  test("many short lines are moved into the thread too", () => {
+    const text = `Summary.\n\n${Array.from({ length: 12 }, () => "detail").join("\n")}`;
+    expect(formatScheduledReply("Check", text)).toEqual({
+      root: "[Check]\n\nSummary.\n\nDetails in thread.",
+      details: text,
+    });
+  });
+
+  test("bounds the summary when the model returns one long paragraph", () => {
+    const text = "x".repeat(1500);
+    const result = formatScheduledReply("Check", text);
+    expect(result.details).toBe(text);
+    expect(result.root).toBe(`[Check]\n\n${"x".repeat(399)}…\n\nDetails in thread.`);
   });
 });

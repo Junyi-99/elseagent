@@ -61,3 +61,17 @@ export function parseReply(finalResponse: string): AgentReply {
     return { reply: true, message: finalResponse, choices: [], files: [] };
   }
 }
+
+/** Keep scheduled notifications compact; preserve the complete result in a thread. */
+export function formatScheduledReply(
+  title: string,
+  text: string,
+): { root: string; details?: string } {
+  const heading = `[${title.replace(/\s+/g, " ").trim()}]`;
+  if (text.length <= 1200 && text.split("\n").length <= 12) {
+    return { root: `${heading}\n\n${text}` };
+  }
+  const opening = text.split(/\n\s*\n/, 1)[0]?.trim() || text.trim();
+  const summary = opening.length > 400 ? `${opening.slice(0, 399).trimEnd()}…` : opening;
+  return { root: `${heading}\n\n${summary}\n\nDetails in thread.`, details: text };
+}

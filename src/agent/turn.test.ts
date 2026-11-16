@@ -348,7 +348,7 @@ describe("scheduled runs", () => {
         schema: REPLY_SCHEMA,
       },
     ]);
-    expect(posts).toEqual([{ text: "CI is green.", choices: [] }]);
+    expect(posts).toEqual([{ text: "[daily]\n\nCI is green.", choices: [] }]);
     expect(reactions).toEqual([]);
     expect(statuses).toEqual([]); // and no thread to show a status in
     expect(contextCalls).toEqual([]);
@@ -366,7 +366,7 @@ describe("scheduled runs", () => {
     await run(scheduled(), never);
     expect(posts).toHaveLength(1);
     expect(posts[0]?.text).toBe(
-      "The task failed. Reply in this thread to ask me to investigate or continue.",
+      "[daily]\n\nThe task failed. Reply in this thread to ask me to investigate or continue.",
     );
     expect(JSON.stringify(posts)).not.toContain("private");
     expect(reactions).toEqual([]);
@@ -400,6 +400,22 @@ describe("scheduled runs", () => {
     expect(sessions.get("C_OPS:91.0", DAY)).toBeNull();
     expect(sessions.get("schedule:3:1000", DAY)).toBeNull();
     expect(usage).toHaveLength(1);
+  });
+
+  test("long results put a summary in the channel and details, buttons and files in its thread", async () => {
+    const details =
+      `Two services need attention.\n\n${"Investigation details. ".repeat(100)}`.trim();
+    const { run, posts, targets, sessions, workspace } = setup(async () =>
+      json(details, ["Investigate", "Dismiss"], true, ["report.txt"]),
+    );
+    await Bun.write(join(workspace, "report.txt"), "Full report");
+    await run(scheduled(), never);
+    expect(posts).toEqual([
+      { text: "[daily]\n\nTwo services need attention.\n\nDetails in thread.", choices: [] },
+      { text: details, choices: ["Investigate", "Dismiss"], files: ["report.txt"] },
+    ]);
+    expect(targets[1]).toEqual({ channel: "C_OPS", ts: "", threadTs: "91.0" });
+    expect(sessions.get("C_OPS:91.0", DAY)?.threadId).toBe("thread-1");
   });
 
   test("each run is a new session", async () => {

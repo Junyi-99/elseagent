@@ -50,7 +50,9 @@ Subscribe to bot events**); without it Slack shows "Stop isn't available for thi
 - In a DM, the `/new` slash command starts the DM over with a new session. In channels, start a
   new thread instead.
 - Scheduled tasks post their result as a new message only when the agent chooses to reply.
-  Silent runs post nothing. Failed runs post a brief error without internal details.
+  Notifications start with `[Task name]`, followed by the result or a brief error without internal details.
+  Results over 1,200 characters or 12 lines show a short opening summary in the channel and the
+  full result (including buttons and attachments) in its thread. Silent runs post nothing.
   Reply in the result or error thread to investigate or resume the same session.
 
 ## Threads
